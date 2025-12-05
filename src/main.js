@@ -17,7 +17,7 @@ self.MonacoEnvironment = {
 
 // Import our modules
 import { registerTypstLanguage } from "./typst-language.js";
-import { initStorage, saveDocument, getDocument, getAllDocuments, deleteDocument, getMostRecentDocument, saveFile, getAllFiles, deleteFile, fileToArrayBuffer } from "./storage.js";
+import { initStorage, saveDocument, getDocument, getAllDocuments, deleteDocument, getMostRecentDocument, saveFile, getFile, getAllFiles, deleteFile, fileToArrayBuffer } from "./storage.js";
 import { templates, getTemplate, getTemplateList } from "./templates.js";
 import { getSharedContent, hasSharedContent, clearShareParam, copyShareLink, getShareLinkInfo } from "./share.js";
 import { icons, getIcon } from "./icons.js";
@@ -60,6 +60,17 @@ let settings = {
   lineNumbers: "on",
   theme: "dark",
 };
+
+// Editor mode: 'code' or 'visual'
+let editorMode = 'code';
+let visualEditorContent = '';
+let isVisualEditorSyncing = false;
+
+// Auto-compile setting
+let autoCompile = true;
+
+// Loaded fonts
+let loadedFonts = [];
 
 // =====================
 // INITIALIZATION
@@ -120,8 +131,10 @@ async function init() {
 
   // Setup event listeners
   editor.getModel().onDidChangeContent(() => {
-    clearTimeout(compileTimer);
-    compileTimer = setTimeout(() => compile(editor.getValue()), COMPILE_DELAY);
+    if (autoCompile) {
+      clearTimeout(compileTimer);
+      compileTimer = setTimeout(() => compile(editor.getValue()), COMPILE_DELAY);
+    }
 
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => autoSave(), AUTO_SAVE_DELAY);
@@ -134,6 +147,9 @@ async function init() {
 
   // Load uploaded files into virtual filesystem
   await loadFilesIntoVFS();
+  
+  // Load saved fonts
+  await loadSavedFonts();
 
   // Initial compile
   compile(editor.getValue());
@@ -518,16 +534,23 @@ function compile(source) {
 }
 
 function handleCompilerMessage(event) {
-  const { type, ok, pdfBuffer, error } = event.data;
+  const { type, ok, pdfBuffer, error, diagnostics } = event.data;
 
   if (type === "compiled") {
     if (!ok) {
-      setCompileStatus("error", error);
+      setCompileStatus("error", error, diagnostics || []);
       return;
     }
 
     if (!pdfBuffer) {
-      setCompileStatus("error", "Compilation produced no output");
+      setCompileStatus("error", "Compilation produced no output", [{
+        severity: "error",
+        message: "Compilation produced no output",
+        file: "/main.typ",
+        line: null,
+        column: null,
+        hint: null,
+      }]);
       return;
     }
 
@@ -537,17 +560,103 @@ function handleCompilerMessage(event) {
   }
 }
 
-function setCompileStatus(status, error = "") {
+function setCompileStatus(status, error = "", diagnostics = []) {
   compileStatus = status;
   errorMessage = error;
   updateStatusBar();
   
-  const errorPanel = document.getElementById("error-panel");
-  if (status === "error" && error) {
-    errorPanel.style.display = "block";
-    errorPanel.querySelector(".error-content").textContent = error;
+  const errorWindow = document.getElementById("error-window");
+  if (status === "error" && (error || diagnostics.length > 0)) {
+    showErrorWindow(error, diagnostics);
   } else {
-    errorPanel.style.display = "none";
+    if (errorWindow) {
+      errorWindow.classList.remove("visible");
+    }
+  }
+}
+
+// =====================
+// ERROR WINDOW
+// =====================
+function showErrorWindow(summary, diagnostics) {
+  const errorWindow = document.getElementById("error-window");
+  if (!errorWindow) return;
+  
+  const errorCount = diagnostics.filter(d => d.severity === "error").length;
+  const warningCount = diagnostics.filter(d => d.severity === "warning").length;
+  
+  // Update header with counts
+  const headerText = errorWindow.querySelector(".error-window-title");
+  if (headerText) {
+    const parts = [];
+    if (errorCount > 0) parts.push(`${errorCount} Error${errorCount > 1 ? 's' : ''}`);
+    if (warningCount > 0) parts.push(`${warningCount} Warning${warningCount > 1 ? 's' : ''}`);
+    headerText.textContent = parts.length > 0 ? parts.join(', ') : 'Compilation Error';
+  }
+  
+  // Render diagnostics list
+  const errorList = errorWindow.querySelector(".error-list");
+  if (errorList) {
+    errorList.innerHTML = diagnostics.map((d, index) => {
+      const severityIcon = d.severity === "warning" ? icons.warning : icons.error;
+      const severityClass = d.severity || "error";
+      const location = formatErrorLocation(d);
+      const hasLocation = d.line !== null;
+      
+      return `
+        <div class="error-item ${severityClass} ${hasLocation ? 'clickable' : ''}" 
+             data-index="${index}" 
+             data-line="${d.line || ''}" 
+             data-column="${d.column || ''}">
+          <div class="error-item-header">
+            <span class="error-severity-icon ${severityClass}">${severityIcon}</span>
+            <span class="error-message">${escapeHtml(d.message)}</span>
+          </div>
+          ${location ? `<div class="error-location">${escapeHtml(location)}</div>` : ''}
+          ${d.hint ? `<div class="error-hint"><span class="hint-label">Hint:</span> ${escapeHtml(d.hint)}</div>` : ''}
+        </div>
+      `;
+    }).join('');
+    
+    // Add click handlers for navigating to error locations
+    errorList.querySelectorAll('.error-item.clickable').forEach(item => {
+      item.addEventListener('click', () => {
+        const line = parseInt(item.dataset.line);
+        const column = parseInt(item.dataset.column) || 1;
+        if (!isNaN(line) && editor) {
+          editor.revealLineInCenter(line);
+          editor.setPosition({ lineNumber: line, column: column });
+          editor.focus();
+        }
+      });
+    });
+  }
+  
+  errorWindow.classList.add("visible");
+}
+
+function formatErrorLocation(diagnostic) {
+  if (diagnostic.line === null) return null;
+  
+  let location = diagnostic.file || "/main.typ";
+  location += `:${diagnostic.line}`;
+  if (diagnostic.column !== null) {
+    location += `:${diagnostic.column}`;
+  }
+  return location;
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function toggleErrorWindow() {
+  const errorWindow = document.getElementById("error-window");
+  if (errorWindow) {
+    errorWindow.classList.toggle("visible");
   }
 }
 
@@ -795,6 +904,787 @@ function setupFormattingButtons() {
 }
 
 // =====================
+// VISUAL EDITOR
+// =====================
+function switchEditorMode(mode) {
+  if (mode === editorMode) return;
+  
+  editorMode = mode;
+  
+  const codeEditor = document.getElementById("monaco-editor");
+  const visualContainer = document.getElementById("visual-editor-container");
+  const btnCode = document.getElementById("btn-mode-code");
+  const btnVisual = document.getElementById("btn-mode-visual");
+  const modeToggle = document.querySelector(".editor-mode-toggle");
+  
+  if (mode === 'visual') {
+    // Switch to visual mode
+    codeEditor.style.display = "none";
+    visualContainer.style.display = "flex";
+    btnCode.classList.remove("active");
+    btnVisual.classList.add("active");
+    modeToggle.classList.add("visual-active");
+    
+    // Convert current code to visual HTML
+    const typstCode = editor.getValue();
+    updateVisualEditor(typstCode);
+    
+    showToast("Rich Text Editor");
+  } else {
+    // Switch to code mode
+    codeEditor.style.display = "block";
+    visualContainer.style.display = "none";
+    btnCode.classList.add("active");
+    btnVisual.classList.remove("active");
+    modeToggle.classList.remove("visual-active");
+    
+    // Convert visual HTML back to Typst code
+    const visualEditor = document.getElementById("visual-editor");
+    const newTypstCode = htmlToTypst(visualEditor);
+    
+    if (newTypstCode !== editor.getValue()) {
+      isVisualEditorSyncing = true;
+      editor.setValue(newTypstCode);
+      isVisualEditorSyncing = false;
+    }
+    
+    editor.focus();
+    showToast("Source Editor");
+  }
+}
+
+function updateVisualEditor(typstCode) {
+  const visualEditor = document.getElementById("visual-editor");
+  visualEditor.innerHTML = typstToHtml(typstCode);
+  updateVisualLineNumbers();
+}
+
+function updateVisualLineNumbers() {
+  const visualEditor = document.getElementById("visual-editor");
+  const lineNumbersContainer = document.getElementById("visual-line-numbers");
+  
+  if (!visualEditor || !lineNumbersContainer) return;
+  
+  // Count the number of child elements (each represents a line)
+  const children = visualEditor.children;
+  const lineCount = Math.max(children.length, 1);
+  
+  // Generate line numbers HTML
+  let lineNumbersHtml = '';
+  for (let i = 1; i <= lineCount; i++) {
+    lineNumbersHtml += `<div class="visual-line-number">${i}</div>`;
+  }
+  
+  lineNumbersContainer.innerHTML = lineNumbersHtml;
+  
+  // Sync scroll position
+  visualEditor.addEventListener('scroll', syncLineNumbersScroll);
+}
+
+function syncLineNumbersScroll() {
+  const visualEditor = document.getElementById("visual-editor");
+  const lineNumbersContainer = document.getElementById("visual-line-numbers");
+  
+  if (lineNumbersContainer && visualEditor) {
+    lineNumbersContainer.scrollTop = visualEditor.scrollTop;
+  }
+}
+
+// Convert Typst markup to HTML for visual editor
+function typstToHtml(typst) {
+  let html = typst;
+  
+  // Process line by line for block elements
+  const lines = html.split('\n');
+  const processedLines = [];
+  let inCodeBlock = false;
+  let codeBlockContent = [];
+  let codeBlockLang = '';
+  let inMathBlock = false;
+  let mathBlockContent = [];
+  
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    
+    // Handle code blocks
+    if (line.trim().startsWith('```')) {
+      if (!inCodeBlock) {
+        inCodeBlock = true;
+        codeBlockLang = line.trim().slice(3);
+        codeBlockContent = [];
+        continue;
+      } else {
+        inCodeBlock = false;
+        processedLines.push(`<pre class="visual-code-block" data-lang="${escapeHtml(codeBlockLang)}"><code>${escapeHtml(codeBlockContent.join('\n'))}</code></pre>`);
+        continue;
+      }
+    }
+    
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      continue;
+    }
+    
+    // Handle math blocks ($$...$$)
+    if (line.trim().startsWith('$ ') && line.trim().endsWith(' $') && line.trim().length > 4) {
+      // Display math block
+      const mathContent = line.trim().slice(2, -2).trim();
+      processedLines.push(`<div class="visual-math-block" data-math="${escapeHtml(mathContent)}">$ ${escapeHtml(mathContent)} $</div>`);
+      continue;
+    }
+    
+    // Headings
+    if (line.startsWith('= ')) {
+      processedLines.push(`<h1 class="visual-h1" data-level="1">${processInlineTypst(line.slice(2))}</h1>`);
+      continue;
+    }
+    if (line.startsWith('== ')) {
+      processedLines.push(`<h2 class="visual-h2" data-level="2">${processInlineTypst(line.slice(3))}</h2>`);
+      continue;
+    }
+    if (line.startsWith('=== ')) {
+      processedLines.push(`<h3 class="visual-h3" data-level="3">${processInlineTypst(line.slice(4))}</h3>`);
+      continue;
+    }
+    if (line.startsWith('==== ')) {
+      processedLines.push(`<h4 class="visual-h4" data-level="4">${processInlineTypst(line.slice(5))}</h4>`);
+      continue;
+    }
+    
+    // List items
+    if (line.match(/^- /)) {
+      processedLines.push(`<div class="visual-list-item" data-type="bullet"><span class="visual-bullet">•</span>${processInlineTypst(line.slice(2))}</div>`);
+      continue;
+    }
+    if (line.match(/^\+ /)) {
+      processedLines.push(`<div class="visual-list-item" data-type="enum"><span class="visual-enum"></span>${processInlineTypst(line.slice(2))}</div>`);
+      continue;
+    }
+    if (line.match(/^\d+\. /)) {
+      const match = line.match(/^(\d+)\. /);
+      processedLines.push(`<div class="visual-list-item" data-type="numbered" data-num="${match[1]}"><span class="visual-num">${match[1]}.</span>${processInlineTypst(line.slice(match[0].length))}</div>`);
+      continue;
+    }
+    
+    // Block directives (simplified handling)
+    if (line.trim().startsWith('#set ') || line.trim().startsWith('#show ') || line.trim().startsWith('#let ')) {
+      processedLines.push(`<div class="visual-directive">${escapeHtml(line)}</div>`);
+      continue;
+    }
+    
+    // Figure blocks
+    if (line.trim().startsWith('#figure(')) {
+      processedLines.push(`<div class="visual-figure">${escapeHtml(line)}</div>`);
+      continue;
+    }
+    
+    // Table blocks
+    if (line.trim().startsWith('#table(')) {
+      processedLines.push(`<div class="visual-table">${escapeHtml(line)}</div>`);
+      continue;
+    }
+    
+    // Comments
+    if (line.trim().startsWith('//')) {
+      processedLines.push(`<div class="visual-comment">${escapeHtml(line)}</div>`);
+      continue;
+    }
+    
+    // Empty lines become paragraph breaks
+    if (line.trim() === '') {
+      processedLines.push('<div class="visual-paragraph-break"></div>');
+      continue;
+    }
+    
+    // Regular paragraphs
+    processedLines.push(`<p class="visual-paragraph">${processInlineTypst(line)}</p>`);
+  }
+  
+  // Join without extra newlines - the HTML structure provides the spacing
+  return processedLines.join('');
+}
+
+// Process inline Typst formatting
+function processInlineTypst(text) {
+  let result = escapeHtml(text);
+  
+  // Bold *text*
+  result = result.replace(/\*([^*]+)\*/g, '<strong class="visual-bold">$1</strong>');
+  
+  // Italic _text_
+  result = result.replace(/_([^_]+)_/g, '<em class="visual-italic">$1</em>');
+  
+  // Inline code `text`
+  result = result.replace(/`([^`]+)`/g, '<code class="visual-inline-code">$1</code>');
+  
+  // Inline math $text$
+  result = result.replace(/\$([^$]+)\$/g, '<span class="visual-inline-math">$$$1$$</span>');
+  
+  // Links #link("url")[text]
+  result = result.replace(/#link\(&quot;([^&]+)&quot;\)\[([^\]]+)\]/g, '<a class="visual-link" href="$1">$2</a>');
+  
+  // Simple function calls like #lorem(50)
+  result = result.replace(/#(\w+)\(([^)]*)\)/g, '<span class="visual-function">#$1($2)</span>');
+  
+  // Subscript #sub[text]
+  result = result.replace(/#sub\[([^\]]+)\]/g, '<sub class="visual-sub">$1</sub>');
+  
+  // Superscript #super[text]
+  result = result.replace(/#super\[([^\]]+)\]/g, '<sup class="visual-super">$1</sup>');
+  
+  // Underline #underline[text]
+  result = result.replace(/#underline\[([^\]]+)\]/g, '<u class="visual-underline">$1</u>');
+  
+  // Strike #strike[text]
+  result = result.replace(/#strike\[([^\]]+)\]/g, '<s class="visual-strike">$1</s>');
+  
+  // Labels <label>
+  result = result.replace(/&lt;(\w+)&gt;/g, '<span class="visual-label">&lt;$1&gt;</span>');
+  
+  // References @label
+  result = result.replace(/@(\w+)/g, '<span class="visual-ref">@$1</span>');
+  
+  return result;
+}
+
+// Convert HTML from visual editor back to Typst
+function htmlToTypst(visualEditor) {
+  const lines = [];
+  
+  function processNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return node.textContent;
+    }
+    
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return '';
+    }
+    
+    const tag = node.tagName.toLowerCase();
+    const className = node.className || '';
+    
+    // Handle different element types
+    if (className.includes('visual-h1')) {
+      return '= ' + processChildren(node);
+    }
+    if (className.includes('visual-h2')) {
+      return '== ' + processChildren(node);
+    }
+    if (className.includes('visual-h3')) {
+      return '=== ' + processChildren(node);
+    }
+    if (className.includes('visual-h4')) {
+      return '==== ' + processChildren(node);
+    }
+    
+    if (className.includes('visual-list-item')) {
+      const type = node.dataset.type;
+      const content = processChildrenSkipMarker(node);
+      if (type === 'bullet') return '- ' + content;
+      if (type === 'enum') return '+ ' + content;
+      if (type === 'numbered') return node.dataset.num + '. ' + content;
+      return '- ' + content;
+    }
+    
+    if (className.includes('visual-code-block')) {
+      const lang = node.dataset.lang || '';
+      const code = node.querySelector('code');
+      return '```' + lang + '\n' + (code ? code.textContent : '') + '\n```';
+    }
+    
+    if (className.includes('visual-math-block')) {
+      return '$ ' + (node.dataset.math || node.textContent.replace(/^\$\s*/, '').replace(/\s*\$$/, '')) + ' $';
+    }
+    
+    if (className.includes('visual-directive') || className.includes('visual-figure') || 
+        className.includes('visual-table') || className.includes('visual-comment')) {
+      return node.textContent;
+    }
+    
+    if (className.includes('visual-paragraph-break')) {
+      return '';
+    }
+    
+    if (className.includes('visual-paragraph') || tag === 'p') {
+      return processChildren(node);
+    }
+    
+    // Inline elements
+    if (className.includes('visual-bold') || tag === 'strong' || tag === 'b') {
+      return '*' + processChildren(node) + '*';
+    }
+    if (className.includes('visual-italic') || tag === 'em' || tag === 'i') {
+      return '_' + processChildren(node) + '_';
+    }
+    if (className.includes('visual-inline-code') || tag === 'code') {
+      return '`' + processChildren(node) + '`';
+    }
+    if (className.includes('visual-inline-math')) {
+      const content = node.textContent.replace(/^\$+/, '').replace(/\$+$/, '');
+      return '$' + content + '$';
+    }
+    if (className.includes('visual-link') || tag === 'a') {
+      const href = node.getAttribute('href') || '';
+      return `#link("${href}")[${processChildren(node)}]`;
+    }
+    if (className.includes('visual-sub') || tag === 'sub') {
+      return '#sub[' + processChildren(node) + ']';
+    }
+    if (className.includes('visual-super') || tag === 'sup') {
+      return '#super[' + processChildren(node) + ']';
+    }
+    if (className.includes('visual-underline') || tag === 'u') {
+      return '#underline[' + processChildren(node) + ']';
+    }
+    if (className.includes('visual-strike') || tag === 's') {
+      return '#strike[' + processChildren(node) + ']';
+    }
+    if (className.includes('visual-function')) {
+      return node.textContent;
+    }
+    if (className.includes('visual-label')) {
+      return node.textContent;
+    }
+    if (className.includes('visual-ref')) {
+      return node.textContent;
+    }
+    
+    // Line breaks
+    if (tag === 'br') {
+      return '\n';
+    }
+    
+    // Divs and spans - just process children
+    if (tag === 'div' || tag === 'span') {
+      return processChildren(node);
+    }
+    
+    // Default: process children
+    return processChildren(node);
+  }
+  
+  function processChildren(node) {
+    let result = '';
+    for (const child of node.childNodes) {
+      result += processNode(child);
+    }
+    return result;
+  }
+  
+  function processChildrenSkipMarker(node) {
+    let result = '';
+    for (const child of node.childNodes) {
+      // Skip bullet/enum markers
+      if (child.className && (child.className.includes('visual-bullet') || 
+          child.className.includes('visual-enum') || child.className.includes('visual-num'))) {
+        continue;
+      }
+      result += processNode(child);
+    }
+    return result;
+  }
+  
+  // Process each top-level child
+  for (const child of visualEditor.childNodes) {
+    // Skip whitespace-only text nodes between elements
+    if (child.nodeType === Node.TEXT_NODE && !child.textContent.trim()) {
+      continue;
+    }
+    const line = processNode(child);
+    // Only add non-null lines (paragraph breaks return empty string for blank lines)
+    if (line !== null) {
+      lines.push(line);
+    }
+  }
+  
+  // Clean up multiple consecutive empty lines
+  const cleanedLines = [];
+  let lastWasEmpty = false;
+  for (const line of lines) {
+    const isEmpty = line.trim() === '';
+    if (isEmpty && lastWasEmpty) {
+      continue; // Skip consecutive empty lines
+    }
+    cleanedLines.push(line);
+    lastWasEmpty = isEmpty;
+  }
+  
+  return cleanedLines.join('\n');
+}
+
+// Handle input in visual editor
+function handleVisualEditorInput(e) {
+  if (isVisualEditorSyncing) return;
+  
+  // Update line numbers immediately
+  updateVisualLineNumbers();
+  
+  // Debounce sync to code editor
+  clearTimeout(compileTimer);
+  compileTimer = setTimeout(() => {
+    const visualEditor = document.getElementById("visual-editor");
+    const typstCode = htmlToTypst(visualEditor);
+    
+    isVisualEditorSyncing = true;
+    editor.setValue(typstCode);
+    isVisualEditorSyncing = false;
+    
+    if (autoCompile) {
+      compile(typstCode);
+    }
+  }, COMPILE_DELAY);
+  
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => autoSave(), AUTO_SAVE_DELAY);
+}
+
+// Handle paste in visual editor - convert to plain text
+function handleVisualEditorPaste(e) {
+  e.preventDefault();
+  const text = e.clipboardData.getData('text/plain');
+  document.execCommand('insertText', false, text);
+}
+
+// Handle special keystrokes in visual editor
+function handleVisualEditorKeydown(e) {
+  // Enter key - insert new paragraph
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    document.execCommand('insertParagraph', false);
+  }
+  
+  // Tab key - indent
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    document.execCommand('insertText', false, '  ');
+  }
+  
+  // Ctrl/Cmd + B - Bold
+  if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
+    e.preventDefault();
+    applyVisualFormatting('bold');
+  }
+  
+  // Ctrl/Cmd + I - Italic
+  if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+    e.preventDefault();
+    applyVisualFormatting('italic');
+  }
+  
+  // Ctrl/Cmd + U - Underline
+  if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
+    e.preventDefault();
+    applyVisualFormatting('underline');
+  }
+}
+
+// Apply formatting in visual editor
+function applyVisualFormatting(format) {
+  const selection = window.getSelection();
+  if (!selection.rangeCount) return;
+  
+  const range = selection.getRangeAt(0);
+  const selectedText = range.toString();
+  
+  if (!selectedText) return;
+  
+  let wrapper;
+  switch (format) {
+    case 'bold':
+      wrapper = document.createElement('strong');
+      wrapper.className = 'visual-bold';
+      break;
+    case 'italic':
+      wrapper = document.createElement('em');
+      wrapper.className = 'visual-italic';
+      break;
+    case 'underline':
+      wrapper = document.createElement('u');
+      wrapper.className = 'visual-underline';
+      break;
+    default:
+      return;
+  }
+  
+  range.surroundContents(wrapper);
+  
+  // Trigger sync
+  handleVisualEditorInput();
+}
+
+// =====================
+// RECOMPILE FUNCTIONS
+// =====================
+function manualRecompile() {
+  const source = editorMode === 'visual' 
+    ? htmlToTypst(document.getElementById("visual-editor"))
+    : editor.getValue();
+  compile(source);
+  showToast("Recompiling...");
+}
+
+function forceRecompile() {
+  // Clear any cached state and recompile
+  currentPdfBuffer = null;
+  manualRecompile();
+  showToast("Force recompiling...");
+}
+
+function toggleRecompileDropdown(e) {
+  e.stopPropagation();
+  const dropdown = document.getElementById("recompile-dropdown");
+  dropdown.classList.toggle("show");
+}
+
+function closeAllDropdowns() {
+  document.getElementById("recompile-dropdown")?.classList.remove("show");
+}
+
+// =====================
+// FIND AND REPLACE
+// =====================
+function openFind() {
+  if (editorMode === 'code' && editor) {
+    // Use Monaco's built-in find widget
+    editor.trigger('keyboard', 'actions.find');
+    editor.focus();
+  } else if (editorMode === 'visual') {
+    // For visual editor, use browser's native find or custom implementation
+    showCustomFindDialog();
+  }
+}
+
+function openFindReplace() {
+  if (editorMode === 'code' && editor) {
+    // Use Monaco's built-in find and replace widget
+    editor.trigger('keyboard', 'editor.action.startFindReplaceAction');
+    editor.focus();
+  } else if (editorMode === 'visual') {
+    // For visual editor, show custom find/replace dialog
+    showCustomFindReplaceDialog();
+  }
+}
+
+// Custom find dialog for visual editor
+function showCustomFindDialog() {
+  const content = `
+    <div class="find-dialog">
+      <div class="find-input-group">
+        <label>Find:</label>
+        <input type="text" id="find-input" placeholder="Search text..." autofocus>
+      </div>
+      <div class="find-options">
+        <label><input type="checkbox" id="find-case-sensitive"> Case sensitive</label>
+        <label><input type="checkbox" id="find-whole-word"> Whole word</label>
+      </div>
+      <div class="find-results" id="find-results"></div>
+      <div class="find-actions">
+        <button class="btn" id="find-prev">Previous</button>
+        <button class="btn" id="find-next">Next</button>
+        <button class="btn primary" id="find-all">Find All</button>
+      </div>
+    </div>
+  `;
+  
+  showModal("Find", content);
+  
+  const findInput = document.getElementById("find-input");
+  const resultsDiv = document.getElementById("find-results");
+  
+  let currentIndex = -1;
+  let matches = [];
+  
+  function performFind() {
+    const searchText = findInput.value;
+    if (!searchText) {
+      resultsDiv.textContent = "";
+      matches = [];
+      return;
+    }
+    
+    const visualEditor = document.getElementById("visual-editor");
+    const text = visualEditor.innerText;
+    const caseSensitive = document.getElementById("find-case-sensitive").checked;
+    const wholeWord = document.getElementById("find-whole-word").checked;
+    
+    // Find all matches
+    matches = [];
+    let searchStr = caseSensitive ? searchText : searchText.toLowerCase();
+    let textToSearch = caseSensitive ? text : text.toLowerCase();
+    
+    let pos = 0;
+    while ((pos = textToSearch.indexOf(searchStr, pos)) !== -1) {
+      if (wholeWord) {
+        const before = pos > 0 ? textToSearch[pos - 1] : ' ';
+        const after = pos + searchStr.length < textToSearch.length ? textToSearch[pos + searchStr.length] : ' ';
+        if (/\w/.test(before) || /\w/.test(after)) {
+          pos++;
+          continue;
+        }
+      }
+      matches.push(pos);
+      pos++;
+    }
+    
+    resultsDiv.textContent = matches.length > 0 
+      ? "Found " + matches.length + " match" + (matches.length > 1 ? "es" : "")
+      : "No matches found";
+    
+    currentIndex = matches.length > 0 ? 0 : -1;
+    highlightMatch();
+  }
+  
+  function highlightMatch() {
+    // Clear previous highlights
+    const visualEditor = document.getElementById("visual-editor");
+    visualEditor.querySelectorAll('.search-highlight').forEach(el => {
+      el.outerHTML = el.innerHTML;
+    });
+    
+    if (currentIndex >= 0 && matches.length > 0) {
+      // Highlight current match (simplified - would need more complex implementation for proper highlighting)
+      resultsDiv.textContent = "Match " + (currentIndex + 1) + " of " + matches.length;
+    }
+  }
+  
+  findInput.addEventListener("input", performFind);
+  findInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        currentIndex = (currentIndex - 1 + matches.length) % matches.length;
+      } else {
+        currentIndex = (currentIndex + 1) % matches.length;
+      }
+      highlightMatch();
+    }
+    if (e.key === "Escape") {
+      closeModal();
+    }
+  });
+  
+  document.getElementById("find-prev").addEventListener("click", () => {
+    if (matches.length > 0) {
+      currentIndex = (currentIndex - 1 + matches.length) % matches.length;
+      highlightMatch();
+    }
+  });
+  
+  document.getElementById("find-next").addEventListener("click", () => {
+    if (matches.length > 0) {
+      currentIndex = (currentIndex + 1) % matches.length;
+      highlightMatch();
+    }
+  });
+  
+  document.getElementById("find-all").addEventListener("click", performFind);
+}
+
+// Custom find and replace dialog for visual editor
+function showCustomFindReplaceDialog() {
+  const content = `
+    <div class="find-replace-dialog">
+      <div class="find-input-group">
+        <label>Find:</label>
+        <input type="text" id="find-input" placeholder="Search text..." autofocus>
+      </div>
+      <div class="find-input-group">
+        <label>Replace:</label>
+        <input type="text" id="replace-input" placeholder="Replace with...">
+      </div>
+      <div class="find-options">
+        <label><input type="checkbox" id="find-case-sensitive"> Case sensitive</label>
+        <label><input type="checkbox" id="find-whole-word"> Whole word</label>
+      </div>
+      <div class="find-results" id="find-results"></div>
+      <div class="find-actions">
+        <button class="btn" id="find-prev">Previous</button>
+        <button class="btn" id="find-next">Next</button>
+        <button class="btn" id="replace-one">Replace</button>
+        <button class="btn primary" id="replace-all">Replace All</button>
+      </div>
+    </div>
+  `;
+  
+  showModal("Find & Replace", content);
+  
+  const findInput = document.getElementById("find-input");
+  const replaceInput = document.getElementById("replace-input");
+  const resultsDiv = document.getElementById("find-results");
+  
+  let matchCount = 0;
+  
+  function countMatches() {
+    const searchText = findInput.value;
+    if (!searchText) {
+      resultsDiv.textContent = "";
+      matchCount = 0;
+      return;
+    }
+    
+    const visualEditor = document.getElementById("visual-editor");
+    const text = visualEditor.innerText;
+    const caseSensitive = document.getElementById("find-case-sensitive").checked;
+    
+    let searchStr = caseSensitive ? searchText : searchText.toLowerCase();
+    let textToSearch = caseSensitive ? text : text.toLowerCase();
+    
+    matchCount = 0;
+    let pos = 0;
+    while ((pos = textToSearch.indexOf(searchStr, pos)) !== -1) {
+      matchCount++;
+      pos++;
+    }
+    
+    resultsDiv.textContent = matchCount > 0 
+      ? "Found " + matchCount + " match" + (matchCount > 1 ? "es" : "")
+      : "No matches found";
+  }
+  
+  function replaceAll() {
+    const searchText = findInput.value;
+    const replaceText = replaceInput.value;
+    if (!searchText) return;
+    
+    // For visual editor, we need to sync back to code editor and do replace there
+    if (editorMode === 'visual') {
+      const visualEditor = document.getElementById("visual-editor");
+      const typstCode = htmlToTypst(visualEditor);
+      
+      const caseSensitive = document.getElementById("find-case-sensitive").checked;
+      let newCode;
+      
+      if (caseSensitive) {
+        newCode = typstCode.split(searchText).join(replaceText);
+      } else {
+        newCode = typstCode.replace(new RegExp(escapeRegex(searchText), 'gi'), replaceText);
+      }
+      
+      editor.setValue(newCode);
+      updateVisualEditor(newCode);
+      compile(newCode);
+      
+      countMatches();
+      showToast("Replaced " + matchCount + " occurrence" + (matchCount > 1 ? "s" : ""));
+    }
+  }
+  
+  findInput.addEventListener("input", countMatches);
+  
+  document.getElementById("replace-all").addEventListener("click", replaceAll);
+  
+  document.getElementById("find-next").addEventListener("click", countMatches);
+  document.getElementById("find-prev").addEventListener("click", countMatches);
+  document.getElementById("replace-one").addEventListener("click", () => {
+    showToast("Use Replace All for visual editor");
+  });
+}
+
+function escapeRegex(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// =====================
 // UI SETUP
 // =====================
 function setupUI() {
@@ -841,55 +1731,6 @@ function setupUI() {
         </div>
       </header>
 
-      <!-- Formatting Toolbar -->
-      <div class="format-toolbar-container">
-        <div class="format-toolbar">
-          <div class="format-panel">
-            <span class="format-panel-label">Text</span>
-            <div class="format-panel-buttons">
-              <button class="format-btn" id="fmt-bold" title="Bold">B</button>
-              <button class="format-btn" id="fmt-italic" title="Italic">I</button>
-              <button class="format-btn" id="fmt-underline" title="Underline"><u>U</u></button>
-              <button class="format-btn" id="fmt-strike" title="Strikethrough"><s>S</s></button>
-            </div>
-          </div>
-          <div class="format-panel">
-            <span class="format-panel-label">Script</span>
-            <div class="format-panel-buttons">
-              <button class="format-btn" id="fmt-subscript" title="Subscript">X₂</button>
-              <button class="format-btn" id="fmt-superscript" title="Superscript">X²</button>
-            </div>
-          </div>
-          <div class="format-panel">
-            <span class="format-panel-label">Structure</span>
-            <div class="format-panel-buttons">
-              <button class="format-btn" id="fmt-heading" title="Heading">=</button>
-              <button class="format-btn" id="fmt-heading2" title="Heading 2">==</button>
-              <button class="format-btn" id="fmt-list" title="List">•</button>
-              <button class="format-btn" id="fmt-quote" title="Blockquote">❝</button>
-            </div>
-          </div>
-          <div class="format-panel">
-            <span class="format-panel-label">Align</span>
-            <div class="format-panel-buttons">
-              <button class="format-btn" id="fmt-align-left" title="Align Left">⫷</button>
-              <button class="format-btn" id="fmt-align-center" title="Align Center">⫸</button>
-              <button class="format-btn" id="fmt-align-right" title="Align Right">⫸</button>
-            </div>
-          </div>
-          <div class="format-panel">
-            <span class="format-panel-label">Insert</span>
-            <div class="format-panel-buttons">
-              <button class="format-btn" id="fmt-link" title="Link">🔗</button>
-              <button class="format-btn" id="fmt-image" title="Image">🖼</button>
-              <button class="format-btn" id="fmt-table" title="Table">▦</button>
-              <button class="format-btn" id="fmt-code" title="Inline Code">\`</button>
-              <button class="format-btn" id="fmt-codeblock" title="Code Block">{}</button>
-              <button class="format-btn" id="fmt-math" title="Math">∑</button>
-            </div>
-          </div>
-        </div>
-      </div>
 
       <!-- Main Content -->
       <div class="main-content">
@@ -917,6 +1758,19 @@ function setupUI() {
             </div>
             <div class="uploads-list" id="uploads-list"></div>
           </div>
+          <div class="sidebar-section">
+            <div class="sidebar-header">
+              <span>Fonts</span>
+              <div class="sidebar-actions">
+                <button class="icon-btn small" id="btn-upload-font" title="Upload Font">
+                  ${icons.upload}
+                </button>
+              </div>
+            </div>
+            <div class="fonts-list" id="fonts-list">
+              <!-- Rendered dynamically -->
+            </div>
+          </div>
         </aside>
 
         <!-- Resizer -->
@@ -924,14 +1778,97 @@ function setupUI() {
 
         <!-- Editor Panel -->
         <div class="editor-panel" id="editor-panel">
+          <!-- Editor Tabs with Mode Toggle -->
           <div class="editor-tabs">
-            <div class="tab active" data-file="${currentFileName}">
-              <span class="tab-icon">${icons.fileTypst}</span>
-              <span class="tab-name">${currentFileName}</span>
-              <button class="tab-close" title="Close">${icons.close}</button>
+            <div class="editor-tabs-left">
+              <div class="tab active" data-file="${currentFileName}">
+                <span class="tab-icon">${icons.fileTypst}</span>
+                <span class="tab-name">${currentFileName}</span>
+                <button class="tab-close" title="Close">${icons.close}</button>
+              </div>
+            </div>
+            <div class="editor-tabs-right">
+              <div class="editor-mode-toggle">
+                <div class="mode-toggle-bg" id="mode-toggle-bg"></div>
+                <button class="mode-toggle-btn active" id="btn-mode-code" title="Source Code (Code Editor)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="16 18 22 12 16 6"></polyline>
+                    <polyline points="8 6 2 12 8 18"></polyline>
+                  </svg>
+                  <span>Source</span>
+                </button>
+                <button class="mode-toggle-btn" id="btn-mode-visual" title="Rich Text (Visual Editor)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                    <polyline points="14 2 14 8 20 8"></polyline>
+                    <line x1="16" y1="13" x2="8" y2="13"></line>
+                    <line x1="16" y1="17" x2="8" y2="17"></line>
+                  </svg>
+                  <span>Rich Text</span>
+                </button>
+              </div>
             </div>
           </div>
+          
+          <!-- Compact Formatting Toolbar -->
+          <div class="format-bar" id="format-bar">
+            <div class="fmt-dropdown" id="font-dropdown">
+              <button class="fmt-dropdown-btn" id="btn-font-select" title="Font">
+                <span class="font-icon">A</span>
+                <span class="font-name" id="current-font">Default</span>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                  <polyline points="6 9 12 15 18 9"></polyline>
+                </svg>
+              </button>
+              <div class="fmt-dropdown-menu" id="font-menu">
+                <div class="font-option" data-font="">Default</div>
+                <div class="font-option" data-font="New Computer Modern">New Computer Modern</div>
+                <div class="font-option" data-font="Linux Libertine">Linux Libertine</div>
+                <div class="font-option" data-font="Source Sans Pro">Source Sans Pro</div>
+                <div class="font-option" data-font="Fira Sans">Fira Sans</div>
+                <div class="font-divider"></div>
+                <div class="font-section-label">Custom Fonts</div>
+                <div id="custom-font-options"></div>
+                <div class="font-divider"></div>
+                <button class="font-upload-btn" id="btn-font-upload-inline">+ Upload Font</button>
+              </div>
+            </div>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" id="fmt-bold" title="Bold (Ctrl+B)"><b>B</b></button>
+            <button class="fmt-btn" id="fmt-italic" title="Italic (Ctrl+I)"><i>I</i></button>
+            <button class="fmt-btn" id="fmt-underline" title="Underline"><u>U</u></button>
+            <button class="fmt-btn" id="fmt-strike" title="Strikethrough"><s>S</s></button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" id="fmt-heading" title="Heading 1">H1</button>
+            <button class="fmt-btn" id="fmt-heading2" title="Heading 2">H2</button>
+            <button class="fmt-btn" id="fmt-list" title="Bullet List">☰</button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" id="fmt-subscript" title="Subscript">x₂</button>
+            <button class="fmt-btn" id="fmt-superscript" title="Superscript">x²</button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" id="fmt-link" title="Link">🔗</button>
+            <button class="fmt-btn" id="fmt-image" title="Image">🖼️</button>
+            <button class="fmt-btn" id="fmt-table" title="Table">⊞</button>
+            <button class="fmt-btn" id="fmt-math" title="Math">∑</button>
+            <button class="fmt-btn" id="fmt-code" title="Code">&lt;/&gt;</button>
+            <button class="fmt-btn" id="fmt-codeblock" title="Code Block">{ }</button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn" id="fmt-quote" title="Quote">❝</button>
+            <button class="fmt-btn" id="fmt-align-left" title="Align Left">⫷</button>
+            <button class="fmt-btn" id="fmt-align-center" title="Align Center">☰</button>
+            <button class="fmt-btn" id="fmt-align-right" title="Align Right">⫸</button>
+            <span class="fmt-sep"></span>
+            <button class="fmt-btn search-btn" id="btn-find" title="Find (Ctrl+F)">${icons.search}</button>
+            <button class="fmt-btn search-btn" id="btn-replace" title="Find & Replace (Ctrl+H)">⇄</button>
+          </div>
+          
           <div class="editor-content" id="monaco-editor"></div>
+          <div class="visual-editor-container" id="visual-editor-container" style="display: none;">
+            <div class="visual-editor-wrapper">
+              <div class="visual-line-numbers" id="visual-line-numbers"></div>
+              <div class="visual-editor" id="visual-editor" contenteditable="true"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Resizer -->
@@ -941,7 +1878,31 @@ function setupUI() {
         <div class="preview-panel" id="preview-panel">
           <div class="preview-toolbar">
             <div class="preview-toolbar-left">
-              <span class="preview-title">Preview</span>
+              <!-- Recompile Button -->
+              <div class="recompile-group">
+                <button class="recompile-btn" id="btn-recompile" title="Recompile (Ctrl+Enter)">
+                  ${icons.play}
+                  <span>Recompile</span>
+                </button>
+                <button class="recompile-dropdown-btn" id="btn-recompile-dropdown" title="Compile options">
+                  ${icons.chevronDown}
+                </button>
+                <div class="recompile-dropdown" id="recompile-dropdown">
+                  <label class="dropdown-item">
+                    <input type="checkbox" id="auto-compile-toggle" checked>
+                    <span>Auto Compile</span>
+                  </label>
+                  <div class="dropdown-divider"></div>
+                  <button class="dropdown-item" id="btn-force-recompile">
+                    ${icons.refresh}
+                    <span>Force Recompile</span>
+                  </button>
+                  <button class="dropdown-item" id="btn-stop-compile">
+                    ${icons.close}
+                    <span>Stop Compilation</span>
+                  </button>
+                </div>
+              </div>
             </div>
             <div class="preview-toolbar-center">
               <button class="icon-btn small" id="btn-zoom-out" title="Zoom Out">
@@ -960,15 +1921,28 @@ function setupUI() {
             </div>
           </div>
           <div class="preview-content" id="preview-content">
-            <div class="error-panel" id="error-panel" style="display: none;">
-              <div class="error-header">
-                <span class="error-icon">${icons.error}</span>
-                <span>Compilation Error</span>
-                <button class="icon-btn small" id="btn-close-error">${icons.close}</button>
-              </div>
-              <pre class="error-content"></pre>
-            </div>
             <div class="pdf-container" id="pdf-pages"></div>
+          </div>
+          
+          <!-- Error Window (Separate Panel) -->
+          <div class="error-window" id="error-window">
+            <div class="error-window-header">
+              <div class="error-window-header-left">
+                <span class="error-window-icon">${icons.error}</span>
+                <span class="error-window-title">Compilation Error</span>
+              </div>
+              <div class="error-window-header-right">
+                <button class="icon-btn small" id="btn-toggle-error" title="Minimize">
+                  ${icons.chevronDown}
+                </button>
+                <button class="icon-btn small" id="btn-close-error" title="Close">
+                  ${icons.close}
+                </button>
+              </div>
+            </div>
+            <div class="error-window-body">
+              <div class="error-list"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -992,6 +1966,7 @@ function setupUI() {
 
     <!-- Hidden Inputs -->
     <input type="file" id="file-input" multiple accept="image/*,.ttf,.otf,.woff,.woff2,.typ,.txt,.csv,.json,.bib" style="display:none">
+    <input type="file" id="font-input" multiple accept=".ttf,.otf,.woff,.woff2" style="display:none">
 
     <!-- Modals -->
     <div class="modal-overlay" id="modal-overlay" style="display: none;">
@@ -1049,6 +2024,15 @@ function setupEventListeners() {
   });
   document.getElementById("file-input").addEventListener("change", handleFileUpload);
 
+  // Font upload
+  document.getElementById("btn-upload-font").addEventListener("click", () => {
+    document.getElementById("font-input").click();
+  });
+  document.getElementById("font-input").addEventListener("change", handleFontUpload);
+
+  // Font dropdown in format bar
+  setupFontDropdown();
+
   // Zoom controls
   document.getElementById("btn-zoom-in").addEventListener("click", (e) => {
     e.preventDefault();
@@ -1070,9 +2054,19 @@ function setupEventListeners() {
     resetZoom();
   });
 
-  // Error panel close
+  // Error window controls
   document.getElementById("btn-close-error").addEventListener("click", () => {
-    document.getElementById("error-panel").style.display = "none";
+    const errorWindow = document.getElementById("error-window");
+    if (errorWindow) {
+      errorWindow.classList.remove("visible");
+    }
+  });
+  
+  document.getElementById("btn-toggle-error").addEventListener("click", () => {
+    const errorWindow = document.getElementById("error-window");
+    if (errorWindow) {
+      errorWindow.classList.toggle("minimized");
+    }
   });
 
   // Modal close
@@ -1095,6 +2089,43 @@ function setupEventListeners() {
       showToast("Document cleared");
     }
   });
+  
+  // Editor mode toggle
+  document.getElementById("btn-mode-code").addEventListener("click", () => switchEditorMode('code'));
+  document.getElementById("btn-mode-visual").addEventListener("click", () => switchEditorMode('visual'));
+  
+  // Visual editor input handling
+  const visualEditor = document.getElementById("visual-editor");
+  visualEditor.addEventListener("input", handleVisualEditorInput);
+  visualEditor.addEventListener("paste", handleVisualEditorPaste);
+  visualEditor.addEventListener("keydown", handleVisualEditorKeydown);
+  
+  // Recompile button and dropdown
+  document.getElementById("btn-recompile").addEventListener("click", manualRecompile);
+  document.getElementById("btn-recompile-dropdown").addEventListener("click", toggleRecompileDropdown);
+  document.getElementById("auto-compile-toggle").addEventListener("change", (e) => {
+    autoCompile = e.target.checked;
+    showToast(autoCompile ? "Auto-compile enabled" : "Auto-compile disabled");
+  });
+  document.getElementById("btn-force-recompile").addEventListener("click", () => {
+    closeAllDropdowns();
+    forceRecompile();
+  });
+  document.getElementById("btn-stop-compile").addEventListener("click", () => {
+    closeAllDropdowns();
+    showToast("Compilation stopped");
+  });
+  
+  // Close dropdowns when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".recompile-group")) {
+      closeAllDropdowns();
+    }
+  });
+  
+  // Find and Replace buttons
+  document.getElementById("btn-find").addEventListener("click", openFind);
+  document.getElementById("btn-replace").addEventListener("click", openFindReplace);
 }
 
 // =====================
@@ -1436,6 +2467,25 @@ function setupKeyboardShortcuts() {
     // Escape: Close modal
     if (e.key === "Escape") {
       closeModal();
+      closeAllDropdowns();
+    }
+    
+    // Ctrl/Cmd + Enter: Recompile
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      manualRecompile();
+    }
+    
+    // Ctrl/Cmd + F: Find (only intercept in visual mode, Monaco handles code mode)
+    if ((e.ctrlKey || e.metaKey) && e.key === "f" && editorMode === 'visual') {
+      e.preventDefault();
+      openFind();
+    }
+    
+    // Ctrl/Cmd + H: Find and Replace
+    if ((e.ctrlKey || e.metaKey) && e.key === "h") {
+      e.preventDefault();
+      openFindReplace();
     }
   });
 }
@@ -1537,6 +2587,363 @@ function updateUploadsList() {
 }
 
 // =====================
+// FONT MANAGEMENT
+// =====================
+async function handleFontUpload(event) {
+  const files = event.target.files;
+  if (!files.length) return;
+
+  for (const file of files) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
+      showToast(`Invalid font format: ${file.name}. Use TTF, OTF, WOFF, or WOFF2.`);
+      continue;
+    }
+
+    try {
+      const buffer = await fileToArrayBuffer(file);
+      const path = `fonts/${file.name}`;
+      
+      await saveFile(path, buffer, 'font', 'global');
+      
+      // Add to loaded fonts
+      loadedFonts.push({
+        name: file.name,
+        path: path,
+        data: new Uint8Array(buffer)
+      });
+      
+      showToast(`Font loaded: ${file.name}`);
+    } catch (e) {
+      console.error("Font upload failed:", e);
+      showToast(`Failed to load font: ${file.name}`);
+    }
+  }
+
+  updateFontsList();
+  
+  // Notify compiler worker about new fonts
+  sendFontsToWorker();
+  
+  // Recompile to use new fonts
+  compile(editor.getValue());
+  
+  event.target.value = "";
+}
+
+async function loadSavedFonts() {
+  try {
+    const files = await getAllFiles();
+    loadedFonts = files
+      .filter(f => f.type === 'font')
+      .map(f => ({
+        name: f.path.replace('fonts/', ''),
+        path: f.path,
+        data: new Uint8Array(f.data)
+      }));
+    
+    updateFontsList();
+    
+    if (loadedFonts.length > 0) {
+      sendFontsToWorker();
+    }
+  } catch (e) {
+    console.error("Failed to load saved fonts:", e);
+  }
+}
+
+function sendFontsToWorker() {
+  if (!compilerWorker) return;
+  
+  const fontData = loadedFonts.map(f => ({
+    name: f.name,
+    data: f.data
+  }));
+  
+  compilerWorker.postMessage({
+    type: 'loadFonts',
+    fonts: fontData
+  });
+}
+
+function updateFontsList() {
+  const list = document.getElementById("fonts-list");
+  if (!list) return;
+
+  if (loadedFonts.length === 0) {
+    list.innerHTML = '<div class="empty-message">No custom fonts loaded</div>';
+    return;
+  }
+
+  list.innerHTML = loadedFonts.map(font => {
+    const ext = font.name.split('.').pop().toUpperCase();
+    return `
+      <div class="font-item" data-path="${font.path}">
+        <span class="font-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+            <path d="M4 7V4h16v3"/>
+            <path d="M9 20h6"/>
+            <path d="M12 4v16"/>
+          </svg>
+        </span>
+        <span class="font-name">${font.name}</span>
+        <span class="font-badge">${ext}</span>
+        <button class="icon-btn small delete-font" data-path="${font.path}" title="Remove Font">
+          ${icons.trash}
+        </button>
+      </div>
+    `;
+  }).join("");
+
+  // Add delete handlers
+  list.querySelectorAll(".delete-font").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const path = btn.dataset.path;
+      try {
+        await deleteFile(path);
+        loadedFonts = loadedFonts.filter(f => f.path !== path);
+        updateFontsList();
+        sendFontsToWorker();
+        showToast(`Font removed: ${path.replace('fonts/', '')}`);
+      } catch (err) {
+        showToast(`Failed to remove font`);
+      }
+    });
+  });
+}
+
+function showFontManager() {
+  const content = `
+    <div class="font-manager">
+      <div class="font-manager-header">
+        <p>Upload custom fonts to use in your Typst documents.</p>
+        <p class="text-muted">Supported formats: TTF, OTF, WOFF, WOFF2</p>
+      </div>
+      
+      <div class="font-upload-zone" id="font-upload-zone">
+        <input type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2" multiple hidden>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48">
+          <path d="M4 7V4h16v3"/>
+          <path d="M9 20h6"/>
+          <path d="M12 4v16"/>
+        </svg>
+        <p>Drop font files here or click to browse</p>
+      </div>
+      
+      <div class="loaded-fonts-section">
+        <h4>Loaded Fonts (${loadedFonts.length})</h4>
+        <div class="loaded-fonts-list" id="modal-fonts-list">
+          ${loadedFonts.length === 0 
+            ? '<div class="empty-message">No custom fonts loaded</div>'
+            : loadedFonts.map(font => `
+                <div class="font-list-item" data-path="${font.path}">
+                  <span class="font-preview" style="font-family: '${font.name.replace(/\.[^/.]+$/, '')}', sans-serif;">Aa</span>
+                  <span class="font-info">
+                    <span class="font-name">${font.name}</span>
+                    <span class="font-size">${formatBytes(font.data.length)}</span>
+                  </span>
+                  <button class="btn-remove-font" data-path="${font.path}">Remove</button>
+                </div>
+              `).join('')
+          }
+        </div>
+      </div>
+      
+      <div class="font-usage-info">
+        <h4>Usage in Typst</h4>
+        <pre><code>#set text(font: "Font Name")</code></pre>
+      </div>
+    </div>
+  `;
+
+  showModal("Font Manager", content);
+  
+  const uploadZone = document.getElementById("font-upload-zone");
+  const fileInput = document.getElementById("font-file-input");
+  
+  uploadZone.addEventListener("click", () => fileInput.click());
+  
+  uploadZone.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    uploadZone.classList.add("drag-over");
+  });
+  
+  uploadZone.addEventListener("dragleave", () => {
+    uploadZone.classList.remove("drag-over");
+  });
+  
+  uploadZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    uploadZone.classList.remove("drag-over");
+    const files = e.dataTransfer.files;
+    handleFontUploadFromModal(files);
+  });
+  
+  fileInput.addEventListener("change", (e) => {
+    handleFontUploadFromModal(e.target.files);
+  });
+  
+  // Add remove handlers in modal
+  document.querySelectorAll(".btn-remove-font").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const path = btn.dataset.path;
+      await deleteFile(path);
+      loadedFonts = loadedFonts.filter(f => f.path !== path);
+      updateFontsList();
+      sendFontsToWorker();
+      showFontManager(); // Refresh modal
+      showToast(`Font removed`);
+    });
+  });
+}
+
+async function handleFontUploadFromModal(files) {
+  for (const file of files) {
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['ttf', 'otf', 'woff', 'woff2'].includes(ext)) {
+      showToast(`Invalid format: ${file.name}`);
+      continue;
+    }
+
+    try {
+      const buffer = await fileToArrayBuffer(file);
+      const path = `fonts/${file.name}`;
+      
+      await saveFile(path, buffer, 'font', 'global');
+      
+      loadedFonts.push({
+        name: file.name,
+        path: path,
+        data: new Uint8Array(buffer)
+      });
+      
+      showToast(`Font loaded: ${file.name}`);
+    } catch (e) {
+      showToast(`Failed to load: ${file.name}`);
+    }
+  }
+
+  updateFontsList();
+  sendFontsToWorker();
+  compile(editor.getValue());
+  showFontManager(); // Refresh modal
+}
+
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// =====================
+// FONT DROPDOWN
+// =====================
+let currentSelectedFont = "";
+
+function setupFontDropdown() {
+  const dropdown = document.getElementById("font-dropdown");
+  const btn = document.getElementById("btn-font-select");
+  const menu = document.getElementById("font-menu");
+  
+  if (!dropdown || !btn || !menu) return;
+  
+  // Toggle dropdown
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    dropdown.classList.toggle("open");
+    updateCustomFontOptions();
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (!dropdown.contains(e.target)) {
+      dropdown.classList.remove("open");
+    }
+  });
+  
+  // Font option click handlers
+  menu.addEventListener("click", (e) => {
+    const option = e.target.closest(".font-option");
+    if (option) {
+      const fontName = option.dataset.font;
+      selectFont(fontName);
+      dropdown.classList.remove("open");
+    }
+  });
+  
+  // Inline upload button
+  const uploadBtn = document.getElementById("btn-font-upload-inline");
+  if (uploadBtn) {
+    uploadBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dropdown.classList.remove("open");
+      document.getElementById("font-input").click();
+    });
+  }
+}
+
+function updateCustomFontOptions() {
+  const container = document.getElementById("custom-font-options");
+  if (!container) return;
+  
+  if (loadedFonts.length === 0) {
+    container.innerHTML = '<div class="font-option" style="color: var(--text-muted); font-style: italic;">No custom fonts</div>';
+    return;
+  }
+  
+  container.innerHTML = loadedFonts.map(font => {
+    const fontName = font.name.replace(/\.[^/.]+$/, ''); // Remove extension
+    const isSelected = currentSelectedFont === fontName;
+    return `<div class="font-option ${isSelected ? 'selected' : ''}" data-font="${fontName}">${fontName}</div>`;
+  }).join('');
+}
+
+function selectFont(fontName) {
+  currentSelectedFont = fontName;
+  
+  // Update display
+  const fontNameDisplay = document.getElementById("current-font");
+  if (fontNameDisplay) {
+    fontNameDisplay.textContent = fontName || "Default";
+  }
+  
+  // Insert or update font setting in the document
+  applyFontToDocument(fontName);
+  
+  showToast(fontName ? `Font: ${fontName}` : "Font: Default");
+}
+
+function applyFontToDocument(fontName) {
+  if (!editor) return;
+  
+  const content = editor.getValue();
+  const fontDirective = fontName ? `#set text(font: "${fontName}")` : '';
+  
+  // Check if there's already a font directive at the start
+  const fontRegex = /^#set text\(font: "[^"]*"\)\n?/;
+  
+  if (fontRegex.test(content)) {
+    // Replace existing font directive
+    const newContent = fontName 
+      ? content.replace(fontRegex, fontDirective + '\n')
+      : content.replace(fontRegex, '');
+    editor.setValue(newContent);
+  } else if (fontName) {
+    // Add font directive at the beginning
+    editor.setValue(fontDirective + '\n' + content);
+  }
+  
+  // Trigger recompile
+  if (autoCompile) {
+    clearTimeout(compileTimer);
+    compileTimer = setTimeout(() => compile(editor.getValue()), COMPILE_DELAY);
+  }
+}
+
+// =====================
 // SHARE
 // =====================
 async function handleShare() {
@@ -1589,18 +2996,34 @@ function exportPDF() {
       filename += ".pdf";
     }
 
-    const blob = new Blob([currentPdfBuffer], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    try {
+      // Ensure buffer is in the correct format
+      let pdfData = currentPdfBuffer;
+      if (!(pdfData instanceof Uint8Array)) {
+        pdfData = new Uint8Array(pdfData);
+      }
+      
+      const blob = new Blob([pdfData], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup after a short delay
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
 
-    closeModal();
-    showToast(`PDF exported as "${filename}"!`);
+      closeModal();
+      showToast(`PDF exported as "${filename}"!`);
+    } catch (err) {
+      console.error("Export error:", err);
+      showToast("Failed to export PDF: " + err.message);
+    }
   };
 
   document.getElementById("confirm-export").addEventListener("click", doExport);
@@ -1927,11 +3350,11 @@ function addStyles() {
       gap: 4px;
     }
 
-    .file-tree, .uploads-list {
+    .file-tree, .uploads-list, .fonts-list {
       padding: 4px 8px;
     }
 
-    .file-item {
+    .file-item, .font-item {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -1988,6 +3411,197 @@ function addStyles() {
       text-align: center;
     }
 
+    /* Font Items */
+    .font-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+    }
+
+    .font-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .font-icon {
+      width: 14px;
+      height: 14px;
+      display: flex;
+      flex-shrink: 0;
+      color: var(--accent);
+    }
+
+    .font-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+
+    .font-badge {
+      font-size: 9px;
+      padding: 2px 4px;
+      background: var(--bg-tertiary);
+      color: var(--text-muted);
+      border-radius: 3px;
+      font-weight: 600;
+    }
+
+    .font-item .delete-font {
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .font-item:hover .delete-font {
+      opacity: 1;
+    }
+
+    /* Font Manager Modal */
+    .font-manager {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .font-manager-header p {
+      margin: 0 0 8px 0;
+      color: var(--text-secondary);
+    }
+
+    .font-manager-header .text-muted {
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    .font-upload-zone {
+      border: 2px dashed var(--border-color);
+      border-radius: 12px;
+      padding: 32px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg-tertiary);
+    }
+
+    .font-upload-zone:hover,
+    .font-upload-zone.drag-over {
+      border-color: var(--accent);
+      background: var(--accent-muted);
+    }
+
+    .font-upload-zone svg {
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .font-upload-zone p {
+      margin: 0;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .loaded-fonts-section h4 {
+      margin: 0 0 12px 0;
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    .loaded-fonts-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .font-list-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+    }
+
+    .font-preview {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .font-info {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .font-info .font-name {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .font-info .font-size {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .btn-remove-font {
+      padding: 6px 12px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .btn-remove-font:hover {
+      background: var(--error);
+      border-color: var(--error);
+      color: white;
+    }
+
+    .font-usage-info {
+      background: var(--bg-tertiary);
+      padding: 16px;
+      border-radius: 8px;
+    }
+
+    .font-usage-info h4 {
+      margin: 0 0 8px 0;
+      color: var(--text-primary);
+      font-size: 13px;
+    }
+
+    .font-usage-info pre {
+      margin: 0;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+
+    .font-usage-info code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--accent);
+    }
+
     /* Resizer */
     .resizer {
       width: 4px;
@@ -2010,14 +3624,499 @@ function addStyles() {
       background: var(--bg-tertiary);
     }
 
+    /* Compact Format Bar */
+    .format-bar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 4px 8px;
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .fmt-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 28px;
+      height: 26px;
+      padding: 0 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.12s ease;
+    }
+
+    .fmt-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .fmt-btn:active {
+      background: var(--bg-active);
+    }
+
+    .fmt-btn b {
+      font-weight: 700;
+    }
+
+    .fmt-btn i {
+      font-style: italic;
+    }
+
+    .fmt-btn u {
+      text-decoration: underline;
+    }
+
+    .fmt-btn s {
+      text-decoration: line-through;
+    }
+
+    .fmt-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--border-color);
+      margin: 0 4px;
+    }
+
+    .fmt-btn.search-btn {
+      color: var(--accent);
+    }
+
+    .fmt-btn.search-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    /* Font Dropdown in Format Bar */
+    .fmt-dropdown {
+      position: relative;
+    }
+
+    .fmt-dropdown-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .fmt-dropdown-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--text-muted);
+      color: var(--text-primary);
+    }
+
+    .fmt-dropdown-btn .font-icon {
+      font-weight: 700;
+      font-size: 14px;
+    }
+
+    .fmt-dropdown-btn .font-name {
+      max-width: 100px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .fmt-dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      margin-top: 4px;
+      min-width: 200px;
+      max-height: 300px;
+      overflow-y: auto;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      z-index: 1000;
+      display: none;
+    }
+
+    .fmt-dropdown.open .fmt-dropdown-menu {
+      display: block;
+    }
+
+    .font-option {
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--text-secondary);
+      transition: all 0.1s;
+    }
+
+    .font-option:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .font-option.selected {
+      background: var(--accent-muted);
+      color: var(--accent);
+    }
+
+    .font-divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 4px 0;
+    }
+
+    .font-section-label {
+      padding: 8px 14px 4px;
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    .font-upload-btn {
+      display: block;
+      width: calc(100% - 16px);
+      margin: 8px;
+      padding: 10px;
+      background: var(--bg-tertiary);
+      border: 1px dashed var(--border-color);
+      border-radius: 6px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      text-align: center;
+      transition: all 0.15s;
+    }
+
+    .font-upload-btn:hover {
+      background: var(--accent-muted);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .fmt-btn.search-btn:hover {
+      background: var(--accent-muted);
+      color: var(--accent);
+    }
+
+    /* Find/Replace Dialog */
+    .find-dialog,
+    .find-replace-dialog {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .find-input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .find-input-group label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .find-input-group input[type="text"] {
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-primary);
+      font-size: 14px;
+      width: 100%;
+      transition: all 0.15s ease;
+    }
+
+    .find-input-group input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-muted);
+    }
+
+    .find-input-group input[type="text"]::placeholder {
+      color: var(--text-muted);
+    }
+
+    .find-options {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .find-options label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .find-options input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+    }
+
+    .find-results {
+      font-size: 13px;
+      color: var(--text-muted);
+      min-height: 20px;
+    }
+
+    .find-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .find-actions .btn {
+      padding: 8px 16px;
+      background: var(--bg-hover);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+    }
+
+    .find-actions .btn:hover {
+      background: var(--bg-active);
+    }
+
+    .find-actions .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    .find-actions .btn.primary:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Search highlight */
+    .search-highlight {
+      background: #ffeb3b;
+      color: #000;
+      border-radius: 2px;
+    }
+
+    .search-highlight.current {
+      background: #ff9800;
+    }
+
+    /* Recompile Button Group (Preview Panel) */
+    .recompile-group {
+      display: flex;
+      align-items: center;
+      position: relative;
+    }
+
+    .recompile-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: white;
+      border: none;
+      border-radius: 4px 0 0 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      box-shadow: 0 1px 3px rgba(34, 197, 94, 0.3);
+    }
+
+    .recompile-btn:hover {
+      background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+      box-shadow: 0 2px 6px rgba(34, 197, 94, 0.4);
+    }
+
+    .recompile-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .recompile-dropdown-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 6px 6px;
+      background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+      color: white;
+      border: none;
+      border-left: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 0 4px 4px 0;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .recompile-dropdown-btn:hover {
+      background: linear-gradient(135deg, #15803d 0%, #166534 100%);
+    }
+
+    .recompile-dropdown-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .recompile-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      min-width: 180px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      z-index: 1000;
+      display: none;
+      overflow: hidden;
+    }
+
+    .recompile-dropdown.show {
+      display: block;
+    }
+
+    .dropdown-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      text-align: left;
+    }
+
+    .dropdown-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .dropdown-item svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .dropdown-item input[type="checkbox"] {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--accent);
+    }
+
+    .dropdown-divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 4px 0;
+    }
+
+    /* Mode Toggle - Overleaf Style */
+    .editor-mode-toggle {
+      display: flex;
+      align-items: center;
+      position: relative;
+      background: #1a1a2e;
+      border: 1px solid #3a3a5a;
+      border-radius: 8px;
+      padding: 3px;
+      gap: 0;
+    }
+
+    .mode-toggle-bg {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: calc(50% - 3px);
+      height: calc(100% - 6px);
+      background: linear-gradient(135deg, #138a36 0%, #0d6e2a 100%);
+      border-radius: 6px;
+      transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 8px rgba(19, 138, 54, 0.3);
+      z-index: 0;
+    }
+
+    .editor-mode-toggle.visual-active .mode-toggle-bg {
+      transform: translateX(100%);
+    }
+
+    .mode-toggle-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: #888;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: color 0.2s ease;
+      position: relative;
+      z-index: 1;
+      flex: 1;
+      white-space: nowrap;
+    }
+
+    .mode-toggle-btn svg {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+
+    .mode-toggle-btn:hover {
+      color: #bbb;
+    }
+
+    .mode-toggle-btn.active {
+      color: white;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    }
+
+    .mode-toggle-btn.active svg {
+      filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+    }
+
+    /* Editor Tabs */
     .editor-tabs {
       display: flex;
       align-items: center;
+      justify-content: space-between;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
       padding: 0 8px;
       height: 36px;
       flex-shrink: 0;
+    }
+
+    .editor-tabs-left {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .editor-tabs-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
 
     .tab {
@@ -2088,6 +4187,264 @@ function addStyles() {
     .editor-content {
       flex: 1;
       overflow: hidden;
+    }
+
+    /* Visual Editor */
+    .visual-editor-container {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #1e1e2e;
+    }
+
+    .visual-editor-wrapper {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
+    .visual-line-numbers {
+      width: 50px;
+      background: #16161e;
+      border-right: 1px solid #2a2a3e;
+      padding: 16px 0;
+      overflow-y: auto;
+      flex-shrink: 0;
+      user-select: none;
+      scrollbar-width: none;
+    }
+
+    .visual-line-numbers::-webkit-scrollbar {
+      display: none;
+    }
+
+    .visual-line-number {
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 12px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      color: #4a4a6a;
+      line-height: 28px;
+    }
+
+    .visual-line-number:hover {
+      color: #8a8aaa;
+    }
+
+    .visual-line-number.active {
+      color: #22d3ee;
+      background: rgba(34, 211, 238, 0.05);
+    }
+
+    .visual-editor {
+      flex: 1;
+      padding: 16px 24px;
+      overflow-y: auto;
+      outline: none;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 14px;
+      line-height: 28px;
+      color: #e4e4e7;
+      background: #1e1e2e;
+    }
+
+    .visual-editor:focus {
+      outline: none;
+    }
+
+    /* Visual Editor Typography */
+    .visual-h1 {
+      font-size: 20px;
+      font-weight: 700;
+      color: #22d3ee;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-h2 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #a78bfa;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-h3 {
+      font-size: 16px;
+      font-weight: 600;
+      color: #4ade80;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-h4 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #fbbf24;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-paragraph {
+      margin: 0;
+      line-height: 28px;
+    }
+
+    .visual-paragraph-break {
+      height: 28px;
+    }
+
+    /* List Items */
+    .visual-list-item {
+      display: flex;
+      gap: 8px;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-bullet, .visual-enum, .visual-num {
+      flex-shrink: 0;
+      color: #f472b6;
+      font-weight: 500;
+      min-width: 1.5em;
+    }
+
+    /* Code Blocks */
+    .visual-code-block {
+      background: #12121a;
+      color: #abb2bf;
+      padding: 0 12px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 13px;
+      line-height: 28px;
+      overflow-x: auto;
+      margin: 0;
+      white-space: pre;
+    }
+
+    .visual-code-block code {
+      background: none;
+      padding: 0;
+      font-size: inherit;
+    }
+
+    /* Inline Elements */
+    .visual-bold {
+      font-weight: 700;
+    }
+
+    .visual-italic {
+      font-style: italic;
+    }
+
+    .visual-underline {
+      text-decoration: underline;
+    }
+
+    .visual-strike {
+      text-decoration: line-through;
+      color: #6b7280;
+    }
+
+    .visual-inline-code {
+      background: #2a2a3e;
+      color: #f472b6;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95em;
+    }
+
+    .visual-inline-math {
+      background: #2d2a3e;
+      color: #c4b5fd;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .visual-math-block {
+      background: #2d2a3e;
+      color: #c4b5fd;
+      padding: 4px 12px;
+      border-radius: 4px;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-link {
+      color: #60a5fa;
+      text-decoration: none;
+      border-bottom: 1px solid #60a5fa40;
+      transition: all 0.15s;
+    }
+
+    .visual-link:hover {
+      color: #93c5fd;
+      border-bottom-color: #60a5fa;
+    }
+
+    .visual-sub {
+      font-size: 0.75em;
+      vertical-align: sub;
+    }
+
+    .visual-super {
+      font-size: 0.75em;
+      vertical-align: super;
+    }
+
+    /* Special Elements */
+    .visual-directive {
+      color: #fbbf24;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-figure {
+      color: #60a5fa;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-table {
+      color: #4ade80;
+      line-height: 28px;
+      margin: 0;
+    }
+
+    .visual-comment {
+      color: #6b7280;
+      font-style: italic;
+      line-height: 28px;
+      padding: 4px 0;
+    }
+
+    .visual-function {
+      color: #c4b5fd;
+    }
+
+    .visual-label {
+      background: #1e3a5f;
+      color: #60a5fa;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .visual-ref {
+      background: #3b1f3b;
+      color: #f472b6;
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    /* Selection in visual editor */
+    .visual-editor ::selection {
+      background: #accef7;
     }
 
     /* Preview Panel */
@@ -2452,74 +4809,6 @@ function addStyles() {
       height: 14px;
     }
 
-    /* Formatting Toolbar */
-    .format-toolbar-container {
-      display: flex;
-      justify-content: center;
-      padding: 4px 12px;
-      background: #ffffff;
-      border-bottom: 1px solid #e0e0e0;
-    }
-
-    .format-toolbar {
-      display: flex;
-      align-items: stretch;
-      gap: 6px;
-      padding: 2px;
-    }
-
-    .format-panel {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      background: #ffffff;
-      padding: 4px 6px 5px;
-      border-radius: 6px;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-      border: 1px solid #e0e0e0;
-    }
-
-    .format-panel-label {
-      font-size: 9px;
-      font-weight: 500;
-      color: #666666;
-      text-transform: uppercase;
-      letter-spacing: 0.4px;
-      margin-bottom: 3px;
-    }
-
-    .format-panel-buttons {
-      display: flex;
-      align-items: center;
-      gap: 2px;
-    }
-
-    .format-btn {
-      width: 26px;
-      height: 26px;
-      border: none;
-      background: transparent;
-      color: #333333;
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      font-weight: 600;
-      transition: all 0.15s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .format-btn:hover {
-      background: #f0f0f0;
-      color: #000000;
-    }
-
-    .format-btn:active {
-      background: #e0e0e0;
-      color: #000000;
-    }
-
     /* New File Modal */
     .new-file-form {
       text-align: center;
@@ -2591,6 +4880,194 @@ function addStyles() {
 
     .monaco-editor .margin {
       background: var(--bg-tertiary) !important;
+    }
+
+    /* Error Window - Separate Panel at bottom of preview */
+    .error-window {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      max-height: 50%;
+      background: var(--bg-secondary);
+      border-top: 2px solid var(--error);
+      display: none;
+      flex-direction: column;
+      z-index: 100;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+    }
+
+    .error-window.visible {
+      display: flex;
+    }
+
+    .error-window.minimized .error-window-body {
+      display: none;
+    }
+
+    .error-window.minimized {
+      max-height: auto;
+    }
+
+    .error-window-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 16px;
+      background: linear-gradient(135deg, rgba(248, 113, 113, 0.15) 0%, rgba(248, 113, 113, 0.05) 100%);
+      border-bottom: 1px solid rgba(248, 113, 113, 0.3);
+      flex-shrink: 0;
+    }
+
+    .error-window-header-left {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .error-window-header-right {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .error-window-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+      color: var(--error);
+    }
+
+    .error-window-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .error-window-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--error);
+      letter-spacing: 0.3px;
+    }
+
+    .error-window-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      max-height: 300px;
+    }
+
+    .error-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .error-item {
+      padding: 12px 16px;
+      background: transparent;
+      border-left: 3px solid transparent;
+      transition: all 0.15s ease;
+    }
+
+    .error-item:hover {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .error-item.clickable {
+      cursor: pointer;
+    }
+
+    .error-item.clickable:hover {
+      background: rgba(255, 255, 255, 0.06);
+      border-left-color: var(--accent);
+    }
+
+    .error-item.error {
+      border-left-color: var(--error);
+    }
+
+    .error-item.warning {
+      border-left-color: var(--warning);
+    }
+
+    .error-item-header {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .error-severity-icon {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+
+    .error-severity-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .error-severity-icon.error {
+      color: var(--error);
+    }
+
+    .error-severity-icon.warning {
+      color: var(--warning);
+    }
+
+    .error-message {
+      flex: 1;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+      font-size: 13px;
+      color: var(--text-primary);
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .error-location {
+      margin-top: 6px;
+      margin-left: 26px;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+      font-size: 11px;
+      color: var(--accent);
+      background: rgba(34, 211, 238, 0.1);
+      padding: 3px 8px;
+      border-radius: 4px;
+      display: inline-block;
+    }
+
+    .error-hint {
+      margin-top: 8px;
+      margin-left: 26px;
+      font-size: 12px;
+      color: var(--text-secondary);
+      padding: 8px 12px;
+      background: rgba(74, 222, 128, 0.08);
+      border-left: 2px solid var(--success);
+      border-radius: 0 4px 4px 0;
+    }
+
+    .hint-label {
+      font-weight: 600;
+      color: var(--success);
+    }
+
+    /* Make preview-panel position relative for absolute error window */
+    .preview-panel {
+      position: relative;
+    }
+
+    /* Adjust preview content when error window is visible */
+    .error-window.visible ~ .preview-content,
+    .preview-panel:has(.error-window.visible) .preview-content {
+      padding-bottom: 200px;
     }
   `;
   document.head.appendChild(style);

@@ -6,6 +6,7 @@ console.log("[Compiler Worker] Script loading...");
 let typstModule = null;
 let isModuleLoaded = false;
 let virtualFiles = new Map();
+let customFonts = [];
 let isCompiling = false;
 let pendingSource = null;
 
@@ -30,11 +31,16 @@ async function createFreshCompiler() {
   
   const compiler = createTypstCompiler();
   
+  // Convert custom fonts to Blobs for the loadFonts API
+  const customFontBlobs = customFonts.map(font => 
+    new Blob([font.data], { type: 'font/ttf' })
+  );
+  
   await compiler.init({
     getModule: () =>
       "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm",
     beforeBuild: [
-      loadFonts([], { assets: ["text"] }),
+      loadFonts(customFontBlobs, { assets: ["text"] }),
     ],
   });
   
@@ -48,7 +54,14 @@ loadModule().catch((err) => {
 
 // Handle messages from main thread
 self.onmessage = async (event) => {
-  const { type, source, files } = event.data;
+  const { type, source, files, fonts } = event.data;
+
+  // Handle font loading message
+  if (type === 'loadFonts') {
+    customFonts = fonts || [];
+    console.log(`[Compiler Worker] Loaded ${customFonts.length} custom fonts`);
+    return;
+  }
 
   // Handle legacy format (just source string)
   const actualSource = typeof event.data === "string" ? event.data : source;
@@ -123,23 +136,27 @@ async function compileDocument(source) {
         pdfBuffer: result.result,
       });
     } else if (result && result.diagnostics) {
-      // Extract error message from diagnostics
-      let errorMsg = "Compilation failed";
-      if (typeof result.diagnostics === "string") {
-        errorMsg = result.diagnostics;
-      } else if (Array.isArray(result.diagnostics) && result.diagnostics.length > 0) {
-        errorMsg = result.diagnostics.map(d => d.message || JSON.stringify(d)).join("\n");
-      }
+      // Extract detailed error information from diagnostics
+      const diagnostics = parseDiagnostics(result.diagnostics);
       self.postMessage({
         type: "compiled",
         ok: false,
-        error: errorMsg,
+        error: diagnostics.summary,
+        diagnostics: diagnostics.items,
       });
     } else {
       self.postMessage({
         type: "compiled",
         ok: false,
         error: "Unknown compilation error",
+        diagnostics: [{
+          severity: "error",
+          message: "Unknown compilation error",
+          file: "/main.typ",
+          line: null,
+          column: null,
+          hint: null,
+        }],
       });
     }
   } catch (err) {
@@ -150,10 +167,14 @@ async function compileDocument(source) {
       errorMessage = err.message;
     }
     
+    // Try to parse error for line/column info
+    const parsedError = parseErrorMessage(errorMessage);
+    
     self.postMessage({
       type: "compiled",
       ok: false,
       error: errorMessage,
+      diagnostics: [parsedError],
     });
   } finally {
     isCompiling = false;
@@ -168,6 +189,112 @@ async function compileDocument(source) {
   }
 }
 
+// Parse diagnostics from compilation result
+function parseDiagnostics(diagnostics) {
+  const items = [];
+  let summary = "Compilation failed";
+  
+  if (typeof diagnostics === "string") {
+    // Try to parse string diagnostics
+    const parsed = parseErrorMessage(diagnostics);
+    items.push(parsed);
+    summary = diagnostics.split('\n')[0];
+  } else if (Array.isArray(diagnostics)) {
+    for (const d of diagnostics) {
+      if (typeof d === "string") {
+        items.push(parseErrorMessage(d));
+      } else if (typeof d === "object" && d !== null) {
+        // Handle diagnostic object format
+        const item = {
+          severity: d.severity || "error",
+          message: d.message || JSON.stringify(d),
+          file: d.span?.file || d.file || "/main.typ",
+          line: d.span?.start?.line || d.line || null,
+          column: d.span?.start?.column || d.column || null,
+          endLine: d.span?.end?.line || null,
+          endColumn: d.span?.end?.column || null,
+          hint: d.hints?.join("; ") || d.hint || null,
+        };
+        items.push(item);
+      }
+    }
+    if (items.length > 0) {
+      const errorCount = items.filter(i => i.severity === "error").length;
+      const warningCount = items.filter(i => i.severity === "warning").length;
+      const parts = [];
+      if (errorCount > 0) parts.push(`${errorCount} error${errorCount > 1 ? 's' : ''}`);
+      if (warningCount > 0) parts.push(`${warningCount} warning${warningCount > 1 ? 's' : ''}`);
+      summary = parts.length > 0 ? `Compilation failed: ${parts.join(', ')}` : "Compilation failed";
+    }
+  }
+  
+  // If no items parsed, add a generic error
+  if (items.length === 0) {
+    items.push({
+      severity: "error",
+      message: typeof diagnostics === "string" ? diagnostics : "Unknown error",
+      file: "/main.typ",
+      line: null,
+      column: null,
+      hint: null,
+    });
+  }
+  
+  return { items, summary };
+}
+
+// Parse error message string to extract line/column info
+function parseErrorMessage(errorStr) {
+  const result = {
+    severity: "error",
+    message: errorStr,
+    file: "/main.typ",
+    line: null,
+    column: null,
+    hint: null,
+  };
+  
+  // Try to match patterns like "error: message at line X, column Y"
+  // or "file:line:column: message"
+  const patterns = [
+    // Pattern: "file.typ:10:5: error message"
+    /^([^:]+):(\d+):(\d+):\s*(.+)$/m,
+    // Pattern: "error at line 10, column 5"
+    /at line (\d+),?\s*column (\d+)/i,
+    // Pattern: "line 10"
+    /line\s+(\d+)/i,
+    // Pattern: ":10:5:" in the string
+    /:(\d+):(\d+):/,
+  ];
+  
+  for (const pattern of patterns) {
+    const match = errorStr.match(pattern);
+    if (match) {
+      if (match.length >= 4 && isNaN(parseInt(match[1]))) {
+        // file:line:column: message format
+        result.file = match[1];
+        result.line = parseInt(match[2]);
+        result.column = parseInt(match[3]);
+        result.message = match[4] || errorStr;
+      } else if (match[1] && match[2]) {
+        result.line = parseInt(match[1]);
+        result.column = parseInt(match[2]);
+      } else if (match[1]) {
+        result.line = parseInt(match[1]);
+      }
+      break;
+    }
+  }
+  
+  // Extract hint if present (often after "hint:" or "note:")
+  const hintMatch = errorStr.match(/(?:hint|note):\s*(.+)/i);
+  if (hintMatch) {
+    result.hint = hintMatch[1].trim();
+  }
+  
+  return result;
+}
+
 // Handle errors
 self.onerror = (error) => {
   console.error("[Compiler Worker] Error:", error);
@@ -175,5 +302,13 @@ self.onerror = (error) => {
     type: "compiled",
     ok: false,
     error: "Worker error: " + (error.message || error),
+    diagnostics: [{
+      severity: "error",
+      message: "Worker error: " + (error.message || error),
+      file: "/main.typ",
+      line: null,
+      column: null,
+      hint: null,
+    }],
   });
 };
