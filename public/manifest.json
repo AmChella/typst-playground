@@ -1,0 +1,16 @@
+{
+  "name": "Typst Web Editor",
+  "short_name": "Typst Editor",
+  "description": "Online Typst editor with live preview, templates, and offline support",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1e1e",
+  "theme_color": "#1e1e1e",
+  "icons": [
+    {
+      "src": "/vite.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

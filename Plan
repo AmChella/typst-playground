@@ -1,0 +1,72 @@
+# Typst Web Editor Feature Implementation Plan
+## Problem Statement
+Implement 6 key features for the Typst web editor:
+1. Multi-page PDF rendering
+2. Syntax highlighting for Typst
+3. Templates panel
+4. File uploads (images, fonts)
+5. Offline support (IndexedDB)
+6. Share-Link feature
+7. WASM incremental compilation (faster)
+## Current State
+* Basic editor using Monaco Editor with `language: "plaintext"`
+* Single-page PDF rendering via pdf.js (only renders page 1)
+* Typst compilation via `@myriaddreamin/typst-ts-web-compiler` WASM module
+* Simple HTML layout with editor (50%) and preview (50%)
+* No persistence, templates, or file upload support
+## Proposed Changes
+### 1. Multi-page PDF Rendering
+**File:** `src/main.js`
+* Modify `renderPDF()` to iterate through all pages
+* Create a container div to hold multiple canvases
+* Add scroll support for the preview pane
+* Store page count and render all pages sequentially
+### 2. Syntax Highlighting for Typst
+**Files:** `src/main.js`, new `src/typst-language.js`
+* Create Monarch tokenizer definition for Typst syntax
+* Register custom language with Monaco
+* Define tokens for: headings (`=`), emphasis (`*`, `_`), code blocks, math (`$`), functions (`#`), comments (`//`, `/* */`), strings, raw blocks
+* Create custom editor theme for Typst tokens
+### 3. Templates Panel
+**Files:** `public/index.html`, `src/main.js`, new `src/templates.js`
+* Add sidebar panel with template buttons
+* Define template content (letter, report, article, CV, etc.)
+* Implement template loading into editor
+* Add CSS for templates panel styling
+### 4. File Uploads (Images, Fonts)
+**Files:** `src/main.js`, `src/compiler-worker.js`, new `src/file-manager.js`
+* Add file upload button/dropzone in UI
+* Store uploaded files in memory/IndexedDB
+* Implement virtual filesystem for compiler using `set_access_model`
+* Support image formats (PNG, JPG, SVG) and font formats (TTF, OTF, WOFF)
+* Wire uploaded files to compiler's access model
+### 5. Offline Support (IndexedDB)
+**Files:** new `src/storage.js`, `src/main.js`
+* Create IndexedDB wrapper for document storage
+* Store: current document content, uploaded files, user preferences
+* Auto-save document on changes (debounced)
+* Load saved document on page load
+* Register Service Worker for offline asset caching
+* Create `public/sw.js` service worker
+### 6. Share-Link Feature
+**Files:** `src/main.js`, new `src/share.js`
+* Implement URL-based sharing using hash or query params
+* Compress document content using LZ-string or similar
+* Add "Share" button to UI
+* Parse URL on load to restore shared content
+* Consider max URL length limits (~2000 chars)
+### 7. WASM Incremental Compilation
+**Files:** `src/compiler-worker.js`
+* Research and implement incremental compilation API from typst-ts-web-compiler
+* Reuse compiler instance across compilations (already done)
+* Use `addSource`/`mapShadow` methods for source updates instead of full recompile
+* Track file dependencies for minimal recompilation
+* Cache compilation artifacts where possible
+## Implementation Order
+1. Multi-page PDF rendering (foundational)
+2. Syntax highlighting (improves editing UX)
+3. Offline support/IndexedDB (enables persistence)
+4. File uploads (requires storage)
+5. Templates panel (uses storage)
+6. Share-Link feature (self-contained)
+7. Incremental compilation (optimization)
