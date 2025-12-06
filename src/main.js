@@ -554,8 +554,10 @@ function handleCompilerMessage(event) {
       return;
     }
 
-    currentPdfBuffer = pdfBuffer;
-    renderPDF(pdfBuffer);
+    // Make a copy for export (pdf.js will detach the buffer it receives)
+    currentPdfBuffer = new Uint8Array(pdfBuffer).slice(0);
+    // Pass a separate copy to pdf.js for rendering
+    renderPDF(new Uint8Array(pdfBuffer));
     setCompileStatus("ready");
   }
 }
@@ -768,7 +770,8 @@ function updateZoom() {
   }
   
   if (currentPdfBuffer) {
-    renderPDF(currentPdfBuffer);
+    // Pass a copy since pdf.js detaches the buffer
+    renderPDF(new Uint8Array(currentPdfBuffer));
   }
 }
 
@@ -1713,21 +1716,20 @@ function setupUI() {
           </button>
         </div>
         <div class="header-right">
-          <button class="header-btn" id="btn-share" title="Share">
-            ${icons.share}
-            <span>Share</span>
-          </button>
-          <button class="header-btn primary" id="btn-export" title="Export PDF">
-            ${icons.download}
-            <span>Export</span>
-          </button>
-          <div class="header-divider"></div>
-          <button class="icon-btn" id="btn-settings" title="Settings">
-            ${icons.settings}
-          </button>
-          <button class="icon-btn" id="btn-help" title="Help (F1)">
-            ${icons.help}
-          </button>
+          <div class="header-btn-group">
+            <button class="icon-btn" id="btn-share" title="Share">
+              ${icons.share}
+            </button>
+            <button class="icon-btn" id="btn-export" title="Export PDF">
+              ${icons.download}
+            </button>
+            <button class="icon-btn" id="btn-settings" title="Settings">
+              ${icons.settings}
+            </button>
+            <button class="icon-btn" id="btn-help" title="Help (F1)">
+              ${icons.help}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -2997,13 +2999,8 @@ function exportPDF() {
     }
 
     try {
-      // Ensure buffer is in the correct format
-      let pdfData = currentPdfBuffer;
-      if (!(pdfData instanceof Uint8Array)) {
-        pdfData = new Uint8Array(pdfData);
-      }
-      
-      const blob = new Blob([pdfData], { type: "application/pdf" });
+      // currentPdfBuffer is already a clean Uint8Array copy
+      const blob = new Blob([currentPdfBuffer], { type: "application/pdf" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -3145,6 +3142,19 @@ function addStyles() {
     .header-right {
       flex: 1;
       justify-content: flex-end;
+    }
+
+    .header-btn-group {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      background: var(--bg-tertiary);
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    .header-btn-group .icon-btn {
+      border-radius: 6px;
     }
 
     .header-divider {
@@ -4189,13 +4199,13 @@ function addStyles() {
       overflow: hidden;
     }
 
-    /* Visual Editor */
+    /* Visual Editor - Overleaf Style */
     .visual-editor-container {
       flex: 1;
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      background: #1e1e2e;
+      background: #fdfdfd;
     }
 
     .visual-editor-wrapper {
@@ -4206,8 +4216,8 @@ function addStyles() {
 
     .visual-line-numbers {
       width: 50px;
-      background: #16161e;
-      border-right: 1px solid #2a2a3e;
+      background: #f7f7f7;
+      border-right: 1px solid #e0e0e0;
       padding: 16px 0;
       overflow-y: auto;
       flex-shrink: 0;
@@ -4227,17 +4237,17 @@ function addStyles() {
       padding-right: 12px;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 12px;
-      color: #4a4a6a;
+      color: #9ca3af;
       line-height: 28px;
     }
 
     .visual-line-number:hover {
-      color: #8a8aaa;
+      color: #6b7280;
     }
 
     .visual-line-number.active {
-      color: #22d3ee;
-      background: rgba(34, 211, 238, 0.05);
+      color: #138a07;
+      background: rgba(19, 138, 7, 0.08);
     }
 
     .visual-editor {
@@ -4245,11 +4255,11 @@ function addStyles() {
       padding: 16px 24px;
       overflow-y: auto;
       outline: none;
-      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
-      font-size: 14px;
+      font-family: 'Source Serif Pro', 'Georgia', 'Times New Roman', serif;
+      font-size: 15px;
       line-height: 28px;
-      color: #e4e4e7;
-      background: #1e1e2e;
+      color: #333333;
+      background: #fdfdfd;
     }
 
     .visual-editor:focus {
@@ -4258,25 +4268,27 @@ function addStyles() {
 
     /* Visual Editor Typography */
     .visual-h1 {
-      font-size: 20px;
+      font-size: 24px;
       font-weight: 700;
-      color: #22d3ee;
-      line-height: 28px;
+      color: #1a1a1a;
+      line-height: 32px;
       margin: 0;
+      border-bottom: 2px solid #138a07;
+      padding-bottom: 4px;
     }
 
     .visual-h2 {
-      font-size: 18px;
+      font-size: 20px;
       font-weight: 600;
-      color: #a78bfa;
+      color: #2c3e50;
       line-height: 28px;
       margin: 0;
     }
 
     .visual-h3 {
-      font-size: 16px;
+      font-size: 17px;
       font-weight: 600;
-      color: #4ade80;
+      color: #34495e;
       line-height: 28px;
       margin: 0;
     }
@@ -4284,7 +4296,7 @@ function addStyles() {
     .visual-h4 {
       font-size: 15px;
       font-weight: 600;
-      color: #fbbf24;
+      color: #4a5568;
       line-height: 28px;
       margin: 0;
     }
@@ -4308,17 +4320,18 @@ function addStyles() {
 
     .visual-bullet, .visual-enum, .visual-num {
       flex-shrink: 0;
-      color: #f472b6;
-      font-weight: 500;
+      color: #138a07;
+      font-weight: 600;
       min-width: 1.5em;
     }
 
     /* Code Blocks */
     .visual-code-block {
-      background: #12121a;
-      color: #abb2bf;
+      background: #f4f4f4;
+      color: #333;
       padding: 0 12px;
       border-radius: 4px;
+      border-left: 3px solid #138a07;
       font-family: 'JetBrains Mono', 'Fira Code', monospace;
       font-size: 13px;
       line-height: 28px;
@@ -4336,6 +4349,7 @@ function addStyles() {
     /* Inline Elements */
     .visual-bold {
       font-weight: 700;
+      color: #1a1a1a;
     }
 
     .visual-italic {
@@ -4348,44 +4362,47 @@ function addStyles() {
 
     .visual-strike {
       text-decoration: line-through;
-      color: #6b7280;
+      color: #9ca3af;
     }
 
     .visual-inline-code {
-      background: #2a2a3e;
-      color: #f472b6;
-      padding: 1px 5px;
+      background: #f0f0f0;
+      color: #c7254e;
+      padding: 2px 6px;
       border-radius: 3px;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.95em;
+      font-size: 0.9em;
     }
 
     .visual-inline-math {
-      background: #2d2a3e;
-      color: #c4b5fd;
-      padding: 1px 5px;
+      background: #fff8e6;
+      color: #8b5a00;
+      padding: 2px 6px;
       border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .visual-math-block {
-      background: #2d2a3e;
-      color: #c4b5fd;
-      padding: 4px 12px;
+      background: #fff8e6;
+      color: #8b5a00;
+      padding: 8px 16px;
       border-radius: 4px;
+      border-left: 3px solid #f0ad4e;
       line-height: 28px;
       margin: 0;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .visual-link {
-      color: #60a5fa;
+      color: #138a07;
       text-decoration: none;
-      border-bottom: 1px solid #60a5fa40;
+      border-bottom: 1px solid rgba(19, 138, 7, 0.3);
       transition: all 0.15s;
     }
 
     .visual-link:hover {
-      color: #93c5fd;
-      border-bottom-color: #60a5fa;
+      color: #0d6b05;
+      border-bottom-color: #138a07;
     }
 
     .visual-sub {
@@ -4400,51 +4417,62 @@ function addStyles() {
 
     /* Special Elements */
     .visual-directive {
-      color: #fbbf24;
+      color: #a855f7;
       line-height: 28px;
       margin: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
     }
 
     .visual-figure {
-      color: #60a5fa;
+      color: #0284c7;
       line-height: 28px;
       margin: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
     }
 
     .visual-table {
-      color: #4ade80;
+      color: #138a07;
       line-height: 28px;
       margin: 0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
     }
 
     .visual-comment {
-      color: #6b7280;
+      color: #9ca3af;
       font-style: italic;
       line-height: 28px;
       padding: 4px 0;
     }
 
     .visual-function {
-      color: #c4b5fd;
+      color: #7c3aed;
+      font-family: 'JetBrains Mono', monospace;
     }
 
     .visual-label {
-      background: #1e3a5f;
-      color: #60a5fa;
-      padding: 1px 5px;
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 2px 6px;
       border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
     }
 
     .visual-ref {
-      background: #3b1f3b;
-      color: #f472b6;
-      padding: 1px 5px;
+      background: #fce7f3;
+      color: #be185d;
+      padding: 2px 6px;
       border-radius: 3px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9em;
     }
 
     /* Selection in visual editor */
     .visual-editor ::selection {
-      background: #accef7;
+      background: #b8e6b8;
     }
 
     /* Preview Panel */

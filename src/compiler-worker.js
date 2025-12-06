@@ -130,10 +130,14 @@ async function compileDocument(source) {
     });
 
     if (result && result.result) {
+      // Create a clean copy of the PDF bytes to ensure proper transfer
+      // Note: We don't use transferList here because the buffer needs to remain
+      // usable for both preview rendering and later export
+      const pdfBytes = new Uint8Array(result.result);
       self.postMessage({
         type: "compiled",
         ok: true,
-        pdfBuffer: result.result,
+        pdfBuffer: pdfBytes,
       });
     } else if (result && result.diagnostics) {
       // Extract detailed error information from diagnostics
