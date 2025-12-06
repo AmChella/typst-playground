@@ -301,7 +301,7 @@ export const typstTokensProvider = {
   },
 };
 
-// Custom theme for Typst
+// Custom dark theme for Typst
 export const typstTheme = {
   base: "vs-dark",
   inherit: true,
@@ -333,6 +333,38 @@ export const typstTheme = {
   },
 };
 
+// Custom light theme for Typst
+export const typstLightTheme = {
+  base: "vs",
+  inherit: true,
+  rules: [
+    { token: "keyword", foreground: "AF00DB" },
+    { token: "keyword.heading", foreground: "0000FF", fontStyle: "bold" },
+    { token: "markup.heading", foreground: "267f99", fontStyle: "bold" },
+    { token: "markup.bold", foreground: "a31515", fontStyle: "bold" },
+    { token: "markup.italic", foreground: "a31515", fontStyle: "italic" },
+    { token: "markup.strikethrough", foreground: "808080", fontStyle: "strikethrough" },
+    { token: "comment", foreground: "008000" },
+    { token: "string", foreground: "a31515" },
+    { token: "string.raw", foreground: "795E26" },
+    { token: "string.math", foreground: "098658" },
+    { token: "string.link", foreground: "267f99", fontStyle: "underline" },
+    { token: "number", foreground: "098658" },
+    { token: "number.float", foreground: "098658" },
+    { token: "number.unit", foreground: "098658" },
+    { token: "number.percentage", foreground: "098658" },
+    { token: "operator", foreground: "000000" },
+    { token: "tag", foreground: "267f99" },
+    { token: "tag.reference", foreground: "001080" },
+    { token: "support.function", foreground: "795E26" },
+    { token: "entity.name.function", foreground: "795E26" },
+    { token: "type", foreground: "267f99" },
+  ],
+  colors: {
+    "editor.background": "#ffffff",
+  },
+};
+
 // Register Typst language with Monaco
 export function registerTypstLanguage(monaco) {
   // Register the language
@@ -344,6 +376,7 @@ export function registerTypstLanguage(monaco) {
   // Set tokens provider (Monarch)
   monaco.languages.setMonarchTokensProvider("typst", typstTokensProvider);
 
-  // Define and set theme
+  // Define themes
   monaco.editor.defineTheme("typst-dark", typstTheme);
+  monaco.editor.defineTheme("typst-light", typstLightTheme);
 }

@@ -439,6 +439,332 @@ where $mu$ is the mean and $sigma$ is the standard deviation.
 `,
   },
   {
+    id: "elsevier-journal",
+    name: "Elsevier Journal",
+    icon: "🔬",
+    description: "Elsevier-style academic journal article",
+    content: `// ============================================================
+// ELSEVIER JOURNAL ARTICLE TEMPLATE (Embedded)
+// ============================================================
+// Copy this entire file as a starting point for new articles
+// Modify the configuration section below for your article
+// ============================================================
+
+#let elsevier-article(
+  // Journal Information
+  journal: "Journal Name",
+  journal-url: "https://www.elsevier.com/locate/journal",
+  doi: "10.1016/j.xxx.2025.xxxxxx",
+  pii: "S0000-0000(00)00000-0",
+  
+  // Article Dates
+  received: "DD Month YYYY",
+  revised: "DD Month YYYY", 
+  accepted: "DD Month YYYY",
+  
+  // Article Content
+  title: "Article Title",
+  authors: (),
+  affiliations: (:),
+  abstract: [],
+  highlights: (),
+  keywords: "",
+  
+  // Document body
+  body,
+) = {
+  // Document metadata
+  set document(
+    title: title,
+    author: authors.map(a => a.name),
+  )
+  
+  // Page setup
+  set page(
+    paper: "a4",
+    margin: (x: 2.5cm, y: 2.5cm),
+    header: context {
+      if counter(page).get().first() > 1 [
+        #set text(size: 9pt)
+        #authors.first().name.split(" ").last() et al. #h(1fr) #journal
+      ]
+    },
+    numbering: "1",
+  )
+  
+  // Text setup
+  set text(font: "New Computer Modern", size: 10pt)
+  set par(justify: true, leading: 0.65em)
+  set heading(numbering: "1.")
+  
+  // Heading styles
+  show heading.where(level: 1): it => {
+    set text(size: 12pt, weight: "bold")
+    block(above: 1.5em, below: 0.8em)[#it]
+  }
+  
+  show heading.where(level: 2): it => {
+    set text(size: 11pt, weight: "bold")
+    block(above: 1.2em, below: 0.6em)[#it]
+  }
+  
+  // Journal header
+  align(center)[
+    #text(size: 14pt, weight: "bold")[#journal]
+    #v(0.3em)
+    #link(journal-url)[#journal-url.split("//").at(1)]
+  ]
+  
+  v(1em)
+  
+  // Title
+  align(center)[
+    #text(size: 16pt, weight: "bold")[#title]
+  ]
+  
+  v(1em)
+  
+  // Authors
+  align(center)[
+    #for (i, author) in authors.enumerate() {
+      if i > 0 [, ]
+      author.name
+      if author.at("affils", default: ()).len() > 0 {
+        super(author.affils.join(","))
+      }
+      if author.at("corr", default: false) [#super[⁎]]
+    }
+  ]
+  
+  v(0.8em)
+  
+  // Affiliations
+  set text(size: 9pt)
+  for (key, value) in affiliations [
+    #super[#key] #value \\
+  ]
+  
+  v(0.5em)
+  
+  // Corresponding author info
+  text(size: 8pt)[
+    #let corr-authors = authors.filter(a => a.at("corr", default: false))
+    #for (i, author) in corr-authors.enumerate() [
+      #if i == 0 [#super[⁎]] else [#super[⁎⁎]] Corresponding author. #author.at("affil-full", default: "") \\
+    ]
+    _E-mail addresses:_ #authors.filter(a => a.at("email", default: none) != none).map(a => [#link("mailto:" + a.email)[#a.email.replace("@", "\\\\@")] (#a.name.split(" ").last())]).join(", ")
+  ]
+  
+  set text(size: 10pt)
+  v(0.5em)
+  line(length: 100%, stroke: 0.5pt)
+  
+  // Article info box
+  block(
+    fill: luma(245),
+    inset: 10pt,
+    radius: 4pt,
+    width: 100%,
+  )[
+    #grid(
+      columns: (1fr, 2fr),
+      gutter: 1em,
+      [
+        #text(weight: "bold")[Article info] \\
+        #text(size: 9pt)[
+          _Received_ #received \\
+          _Revised_ #revised \\
+          _Accepted_ #accepted
+        ]
+      ],
+      [
+        #text(weight: "bold")[Abstract] \\
+        #text(size: 9pt)[#abstract]
+      ]
+    )
+  ]
+  
+  v(0.5em)
+  
+  // Highlights
+  if highlights.len() > 0 {
+    block(
+      stroke: (left: 3pt + rgb("#0066cc")),
+      inset: (left: 10pt, y: 8pt),
+    )[
+      #text(weight: "bold")[Highlights]
+      #for highlight in highlights [
+        - #highlight
+      ]
+    ]
+    v(0.5em)
+  }
+  
+  // Keywords
+  [#text(weight: "bold")[Keywords:] #keywords]
+  
+  v(1em)
+  line(length: 100%, stroke: 0.5pt)
+  v(1em)
+  
+  // Body content
+  body
+}
+
+// ============================================================
+// ARTICLE CONFIGURATION - Modify this section for your article
+// ============================================================
+#show: elsevier-article.with(
+  // Journal Information
+  journal: "Your Journal Name",
+  journal-url: "https://www.elsevier.com/locate/yourjournal",
+  doi: "10.1016/j.xxx.2025.xxxxxx",
+  pii: "S0000-0000(00)00000-0",
+  
+  // Dates
+  received: "DD Month YYYY",
+  revised: "DD Month YYYY",
+  accepted: "DD Month YYYY",
+  
+  // Title
+  title: "Your Article Title: A Comprehensive Study",
+  
+  // Authors
+  authors: (
+    (
+      name: "First Author",
+      affils: ("a", "b"),
+      corr: true,
+      email: "first.author@university.edu",
+      affil-full: "Department of Science, University Name, City, Country.",
+    ),
+    (
+      name: "Second Author",
+      affils: ("c",),
+    ),
+    (
+      name: "Third Author",
+      affils: ("a", "c"),
+      corr: true,
+      email: "third.author@university.edu",
+      affil-full: "Department of Research, Another University, City, Country.",
+    ),
+  ),
+  
+  // Affiliations
+  affiliations: (
+    a: "Department of Science, First University, City, State, 000000, Country",
+    b: "School of Research, Second University, City, State, 000000, Country",
+    c: "Department of Studies, Third University, City, State, 000000, Country",
+  ),
+  
+  // Abstract
+  abstract: [
+    Write your abstract here. The abstract should provide a comprehensive summary of your research including the background, objectives, methods, key results, and conclusions. This section typically ranges from 150-300 words depending on journal requirements.
+  ],
+  
+  // Highlights
+  highlights: (
+    "First key finding or contribution of the research.",
+    "Second important methodological advancement.",
+    "Third significant result with practical implications.",
+    "Fourth notable conclusion or future direction.",
+  ),
+  
+  // Keywords
+  keywords: "Keyword1; Keyword2; Keyword3; Keyword4; Keyword5",
+)
+
+// ============================================================
+// MAIN CONTENT
+// ============================================================
+#columns(2, gutter: 12pt)[
+
+= Introduction
+
+Write your introduction here. Provide background, context, and objectives.
+
+#lorem(100)
+
+= Materials and Methods
+
+== Study Design
+
+#lorem(60)
+
+== Data Collection
+
+#lorem(50)
+
+= Results
+
+#lorem(80)
+
+#figure(
+  rect(width: 100%, height: 120pt, fill: luma(230))[
+    #align(center + horizon)[Figure placeholder]
+  ],
+  caption: [Description of Figure 1.],
+) <fig1>
+
+= Discussion
+
+#lorem(100)
+
+= Conclusions
+
+#lorem(60)
+
+= CRediT Authorship Contribution Statement
+
+*First Author:* Conceptualization, Writing – original draft. *Second Author:* Methodology. *Third Author:* Supervision, Funding acquisition.
+
+= Funding
+
+This work was supported by [funding source] under grant [number].
+
+= Declaration of Competing Interest
+
+The authors declare no competing interests.
+
+= Acknowledgments
+
+The authors thank [acknowledgments].
+
+]
+
+// Tables (full width)
+#set page(columns: 1)
+
+#figure(
+  table(
+    columns: 4,
+    inset: 6pt,
+    align: left,
+    stroke: none,
+    table.hline(),
+    table.header([*No.*], [*Item*], [*Value*], [*Notes*]),
+    table.hline(),
+    [1.], [Sample A], [100], [Note],
+    [2.], [Sample B], [200], [Note],
+    table.hline(),
+  ),
+  caption: [Sample table.],
+)
+
+#pagebreak()
+
+// References
+#heading(numbering: none)[References]
+#set text(size: 9pt)
+#columns(2, gutter: 12pt)[
+[1] Author A (2024) Title. Journal 10:100-110.
+
+[2] Author B (2023) Title. Journal 5:50-60.
+]
+`,
+  },
+  {
     id: "thesis",
     name: "Thesis",
     icon: "🎓",
@@ -596,3 +922,4 @@ export function getTemplateList() {
     description,
   }));
 }
+

@@ -58,7 +58,7 @@ let settings = {
   wordWrap: "on",
   minimap: false,
   lineNumbers: "on",
-  theme: "dark",
+  theme: "system",
 };
 
 // Editor mode: 'code' or 'visual'
@@ -90,6 +90,10 @@ async function init() {
   // Load saved settings
   loadSettings();
 
+  // Apply theme and setup system theme listener
+  applyTheme();
+  setupSystemThemeListener();
+
   // Register service worker for offline support
   registerServiceWorker();
 
@@ -110,11 +114,15 @@ async function init() {
   // Setup UI
   setupUI();
 
+  // Determine initial Monaco theme
+  const initialTheme = settings.theme === "system" ? getSystemTheme() : settings.theme;
+  const monacoTheme = initialTheme === "dark" ? "typst-dark" : "typst-light";
+
   // Create editor
   editor = monaco.editor.create(document.getElementById("monaco-editor"), {
     value: initialContent,
     language: "typst",
-    theme: "typst-dark",
+    theme: monacoTheme,
     automaticLayout: true,
     minimap: { enabled: settings.minimap },
     fontSize: settings.fontSize,
@@ -2309,6 +2317,14 @@ function showSettingsModal() {
   const content = `
     <div class="settings-form">
       <div class="settings-group">
+        <label>Theme</label>
+        <select id="setting-theme">
+          <option value="system" ${settings.theme === "system" ? "selected" : ""}>System</option>
+          <option value="dark" ${settings.theme === "dark" ? "selected" : ""}>Dark</option>
+          <option value="light" ${settings.theme === "light" ? "selected" : ""}>Light</option>
+        </select>
+      </div>
+      <div class="settings-group">
         <label>Font Size</label>
         <input type="number" id="setting-font-size" value="${settings.fontSize}" min="10" max="24">
       </div>
@@ -2342,12 +2358,14 @@ function showSettingsModal() {
   showModal("Settings", content);
 
   document.getElementById("save-settings").addEventListener("click", () => {
+    settings.theme = document.getElementById("setting-theme").value;
     settings.fontSize = parseInt(document.getElementById("setting-font-size").value);
     settings.wordWrap = document.getElementById("setting-word-wrap").value;
     settings.lineNumbers = document.getElementById("setting-line-numbers").value;
     settings.minimap = document.getElementById("setting-minimap").checked;
 
     applySettings();
+    applyTheme();
     saveSettings();
     closeModal();
     showToast("Settings saved");
@@ -2382,6 +2400,40 @@ function loadSettings() {
   } catch (e) {
     console.warn("Failed to load settings:", e);
   }
+}
+
+// =====================
+// THEME
+// =====================
+function getSystemTheme() {
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function applyTheme() {
+  let theme = settings.theme;
+  
+  // If system, detect the actual theme
+  if (theme === "system") {
+    theme = getSystemTheme();
+  }
+  
+  // Apply theme to document
+  document.documentElement.setAttribute("data-theme", theme);
+  
+  // Update Monaco editor theme
+  if (editor) {
+    const monacoTheme = theme === "dark" ? "typst-dark" : "typst-light";
+    monaco.editor.setTheme(monacoTheme);
+  }
+}
+
+function setupSystemThemeListener() {
+  const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+  mediaQuery.addEventListener("change", () => {
+    if (settings.theme === "system") {
+      applyTheme();
+    }
+  });
 }
 
 // =====================
@@ -3068,8 +3120,8 @@ function showToast(message, duration = 3000) {
 function addStyles() {
   const style = document.createElement("style");
   style.textContent = `
-    /* CSS Variables */
-    :root {
+    /* CSS Variables - Dark Theme (Default) */
+    :root, [data-theme="dark"] {
       --bg-primary: #1a1a2e;
       --bg-secondary: #16213e;
       --bg-tertiary: #0f0f1a;
@@ -3088,6 +3140,25 @@ function addStyles() {
       --header-height: 48px;
       --status-height: 24px;
       --sidebar-width: 240px;
+    }
+
+    /* Light Theme */
+    [data-theme="light"] {
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #f1f5f9;
+      --bg-hover: #e2e8f0;
+      --bg-active: #cbd5e1;
+      --border-color: #e2e8f0;
+      --text-primary: #1e293b;
+      --text-secondary: #475569;
+      --text-muted: #94a3b8;
+      --accent: #0891b2;
+      --accent-hover: #0e7490;
+      --accent-muted: rgba(8, 145, 178, 0.1);
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
     }
 
     /* Reset */
