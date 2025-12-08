@@ -27,21 +27,45 @@ async function loadModule() {
 
 // Create a fresh compiler for each compilation
 async function createFreshCompiler() {
-  const { createTypstCompiler, loadFonts } = typstModule;
+  const compiler = typstModule.createTypstCompiler();
   
-  const compiler = createTypstCompiler();
+  // Convert custom fonts to Blobs
+  const customFontBlobs = customFonts.map(font => {
+    const ext = font.name.split('.').pop().toLowerCase();
+    let mimeType = 'font/ttf';
+    if (ext === 'otf') mimeType = 'font/otf';
+    else if (ext === 'woff') mimeType = 'font/woff';
+    else if (ext === 'woff2') mimeType = 'font/woff2';
+    
+    console.log(`[Compiler Worker] Preparing font: ${font.name} (${mimeType})`);
+    return new Blob([font.data], { type: mimeType });
+  });
   
-  // Convert custom fonts to Blobs for the loadFonts API
-  const customFontBlobs = customFonts.map(font => 
-    new Blob([font.data], { type: 'font/ttf' })
-  );
+  // Determine which font loading function to use
+  const fontLoader = typstModule.preloadRemoteFonts || typstModule.loadFonts;
+  
+  if (!fontLoader) {
+    console.warn("[Compiler Worker] No font loader function found in typst module");
+    console.log("[Compiler Worker] Available exports:", Object.keys(typstModule));
+  }
+  
+  const beforeBuildHooks = [];
+  
+  if (fontLoader) {
+    // Load fonts with the available loader
+    if (customFontBlobs.length > 0) {
+      console.log(`[Compiler Worker] Loading ${customFontBlobs.length} custom fonts`);
+      beforeBuildHooks.push(fontLoader(customFontBlobs, { assets: ["text"] }));
+    } else {
+      // Load just system fonts
+      beforeBuildHooks.push(fontLoader([], { assets: ["text"] }));
+    }
+  }
   
   await compiler.init({
     getModule: () =>
       "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm",
-    beforeBuild: [
-      loadFonts(customFontBlobs, { assets: ["text"] }),
-    ],
+    beforeBuild: beforeBuildHooks,
   });
   
   return compiler;
