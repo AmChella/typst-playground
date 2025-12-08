@@ -1,8 +1,24 @@
 {
-  "name": "typst-web-editor",
+  "name": "typst-playground",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "description": "A modern, browser-based Typst editor with live preview, templates, and offline support",
+  "keywords": [
+    "typst",
+    "editor",
+    "latex-alternative",
+    "typesetting",
+    "pdf",
+    "markdown",
+    "academic-writing"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",

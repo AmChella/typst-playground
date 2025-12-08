@@ -13,7 +13,7 @@ let pendingSource = null;
 // Load the typst module (once)
 async function loadModule() {
   if (isModuleLoaded) return;
-  
+
   try {
     console.log("[Compiler Worker] Loading module...");
     typstModule = await import("@myriaddreamin/typst.ts");
@@ -32,23 +32,24 @@ async function createFreshCompiler() {
     console.log("[Compiler Worker] typst.ts exports:", Object.keys(typstModule));
     createFreshCompiler.logged = true;
   }
-  
+
   const compiler = typstModule.createTypstCompiler();
-  
+
   // loadFonts accepts Uint8Array directly (not Blobs!)
   const fontDataArrays = customFonts.map(font => {
     console.log(`[Compiler Worker] Preparing font: ${font.name} (${font.data.length} bytes)`);
     // Ensure it's a proper Uint8Array
     return font.data instanceof Uint8Array ? font.data : new Uint8Array(font.data);
   });
-  
+
   // Build initialization options
   const initOptions = {
     getModule: () =>
       "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm",
+    // "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0-rc1/pkg/typst_ts_web_compiler_bg.wasm",
     beforeBuild: [],
   };
-  
+
   // Use loadFonts with Uint8Array data + default text assets
   const fontLoader = typstModule.loadFonts || typstModule.preloadRemoteFonts;
   if (fontLoader) {
@@ -58,15 +59,15 @@ async function createFreshCompiler() {
     );
     console.log(`[Compiler Worker] Loading ${fontDataArrays.length} custom fonts with default text assets`);
   }
-  
+
   await compiler.init(initOptions);
-  
+
   // Log compiler methods for debugging (only once)
   if (!createFreshCompiler.compilerLogged) {
     console.log("[Compiler Worker] Compiler methods:", Object.keys(compiler));
     createFreshCompiler.compilerLogged = true;
   }
-  
+
   return compiler;
 }
 
@@ -141,25 +142,25 @@ async function compileDocument(source) {
     pendingSource = source;
     return;
   }
-  
+
   isCompiling = true;
-  
+
   try {
     console.log("[Compiler Worker] Creating fresh compiler...");
-    
+
     // Create a fresh compiler for each compilation
     const compiler = await createFreshCompiler();
-    
+
     // Add the main source file
     compiler.addSource("/main.typ", source);
-    
+
     // Add any uploaded files to shadow filesystem
     for (const [path, data] of virtualFiles) {
       if (data instanceof Uint8Array) {
         compiler.mapShadow("/" + path, data);
       }
     }
-    
+
     console.log("[Compiler Worker] Compiling...");
 
     // Compile to PDF
@@ -204,15 +205,15 @@ async function compileDocument(source) {
     }
   } catch (err) {
     console.error("[Compiler Worker] Compile error:", err);
-    
+
     let errorMessage = err.toString();
     if (err.message) {
       errorMessage = err.message;
     }
-    
+
     // Try to parse error for line/column info
     const parsedError = parseErrorMessage(errorMessage);
-    
+
     self.postMessage({
       type: "compiled",
       ok: false,
@@ -221,7 +222,7 @@ async function compileDocument(source) {
     });
   } finally {
     isCompiling = false;
-    
+
     // Process pending compilation if any
     if (pendingSource !== null) {
       const nextSource = pendingSource;
@@ -236,7 +237,7 @@ async function compileDocument(source) {
 function parseDiagnostics(diagnostics) {
   const items = [];
   let summary = "Compilation failed";
-  
+
   if (typeof diagnostics === "string") {
     // Try to parse string diagnostics
     const parsed = parseErrorMessage(diagnostics);
@@ -270,7 +271,7 @@ function parseDiagnostics(diagnostics) {
       summary = parts.length > 0 ? `Compilation failed: ${parts.join(', ')}` : "Compilation failed";
     }
   }
-  
+
   // If no items parsed, add a generic error
   if (items.length === 0) {
     items.push({
@@ -282,7 +283,7 @@ function parseDiagnostics(diagnostics) {
       hint: null,
     });
   }
-  
+
   return { items, summary };
 }
 
@@ -296,7 +297,7 @@ function parseErrorMessage(errorStr) {
     column: null,
     hint: null,
   };
-  
+
   // Try to match patterns like "error: message at line X, column Y"
   // or "file:line:column: message"
   const patterns = [
@@ -309,7 +310,7 @@ function parseErrorMessage(errorStr) {
     // Pattern: ":10:5:" in the string
     /:(\d+):(\d+):/,
   ];
-  
+
   for (const pattern of patterns) {
     const match = errorStr.match(pattern);
     if (match) {
@@ -328,13 +329,13 @@ function parseErrorMessage(errorStr) {
       break;
     }
   }
-  
+
   // Extract hint if present (often after "hint:" or "note:")
   const hintMatch = errorStr.match(/(?:hint|note):\s*(.+)/i);
   if (hintMatch) {
     result.hint = hintMatch[1].trim();
   }
-  
+
   return result;
 }
 

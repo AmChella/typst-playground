@@ -31,3 +31,4 @@ dist-ssr
 *.temp
 *.bak
 *~
+docs/

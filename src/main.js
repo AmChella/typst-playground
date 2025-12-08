@@ -2448,32 +2448,196 @@ function setupSystemThemeListener() {
 function showHelpModal() {
   const content = `
     <div class="help-content">
-      <h3>Keyboard Shortcuts</h3>
-      <div class="shortcuts-list">
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>S</kbd> <span>Save document</span></div>
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>B</kbd> <span>Toggle sidebar</span></div>
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>E</kbd> <span>Export PDF</span></div>
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>+</kbd> <span>Zoom in</span></div>
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>-</kbd> <span>Zoom out</span></div>
-        <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>0</kbd> <span>Reset zoom</span></div>
-        <div class="shortcut"><kbd>F1</kbd> <span>Show help</span></div>
+      <div class="help-tabs">
+        <button class="help-tab active" data-tab="quickstart">Quick Start</button>
+        <button class="help-tab" data-tab="syntax">Syntax</button>
+        <button class="help-tab" data-tab="shortcuts">Shortcuts</button>
+        <button class="help-tab" data-tab="resources">Resources</button>
       </div>
-      <h3>Resources</h3>
-      <div class="help-links">
-        <a href="https://typst.app/docs" target="_blank" rel="noopener">
-          ${icons.externalLink} Typst Documentation
-        </a>
-        <a href="https://typst.app/docs/tutorial" target="_blank" rel="noopener">
-          ${icons.externalLink} Tutorial
-        </a>
-        <a href="https://typst.app/docs/reference" target="_blank" rel="noopener">
-          ${icons.externalLink} Reference
-        </a>
+      
+      <div class="help-tab-content active" id="tab-quickstart">
+        <h3>🚀 Getting Started</h3>
+        <p>Welcome to Typst Playground! Here's how to get started:</p>
+        
+        <div class="help-section">
+          <h4>1. Write Your Document</h4>
+          <p>Type in the editor on the left. Your document compiles automatically!</p>
+          <pre class="help-code">= Hello World
+
+This is my first document in *Typst*!
+
+== Features
+- Easy to learn
+- Beautiful output
+- Fast compilation</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>2. Use Templates</h4>
+          <p>Click <strong>Templates</strong> in the toolbar to start with a pre-made template.</p>
+        </div>
+        
+        <div class="help-section">
+          <h4>3. Add Images</h4>
+          <p>Drag images to the <strong>Uploads</strong> section, then use:</p>
+          <pre class="help-code">#image("photo.png", width: 80%)</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>4. Export PDF</h4>
+          <p>Click the <strong>Download</strong> button to save your PDF.</p>
+        </div>
+      </div>
+      
+      <div class="help-tab-content" id="tab-syntax">
+        <h3>📝 Basic Syntax</h3>
+        
+        <div class="help-section">
+          <h4>Headings</h4>
+          <pre class="help-code">= Level 1 Heading
+== Level 2 Heading
+=== Level 3 Heading</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Text Formatting</h4>
+          <pre class="help-code">*Bold text*
+_Italic text_
+*_Bold and italic_*
+\`inline code\`
+#strike[strikethrough]
+#underline[underlined]</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Lists</h4>
+          <pre class="help-code">- Bullet item 1
+- Bullet item 2
+
++ Numbered item 1
++ Numbered item 2</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Math</h4>
+          <pre class="help-code">Inline: $E = m c^2$
+
+Display:
+$ integral_0^infinity e^(-x^2) dif x $</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Tables</h4>
+          <pre class="help-code">#table(
+  columns: 3,
+  [A], [B], [C],
+  [1], [2], [3],
+)</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Images & Figures</h4>
+          <pre class="help-code">#figure(
+  image("photo.png", width: 80%),
+  caption: [My caption]
+)</pre>
+        </div>
+        
+        <div class="help-section">
+          <h4>Page Setup</h4>
+          <pre class="help-code">#set page(paper: "a4", margin: 2cm)
+#set text(font: "New Computer Modern", size: 11pt)
+#set par(justify: true)</pre>
+        </div>
+      </div>
+      
+      <div class="help-tab-content" id="tab-shortcuts">
+        <h3>⌨️ Keyboard Shortcuts</h3>
+        <div class="shortcuts-grid">
+          <div class="shortcut-group">
+            <h4>Document</h4>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>S</kbd> <span>Save</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>E</kbd> <span>Export PDF</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> <span>Recompile</span></div>
+          </div>
+          
+          <div class="shortcut-group">
+            <h4>Editor</h4>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>F</kbd> <span>Find</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>H</kbd> <span>Replace</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>/</kbd> <span>Comment</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Space</kbd> <span>Autocomplete</span></div>
+          </div>
+          
+          <div class="shortcut-group">
+            <h4>View</h4>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>B</kbd> <span>Toggle sidebar</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>+</kbd> <span>Zoom in</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>-</kbd> <span>Zoom out</span></div>
+            <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>0</kbd> <span>Reset zoom</span></div>
+          </div>
+          
+          <div class="shortcut-group">
+            <h4>Other</h4>
+            <div class="shortcut"><kbd>F1</kbd> <span>Help</span></div>
+            <div class="shortcut"><kbd>Esc</kbd> <span>Close modal</span></div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="help-tab-content" id="tab-resources">
+        <h3>📚 Resources</h3>
+        <div class="help-links">
+          <a href="/tutorial.html" class="tutorial-link">
+            📖 Full Tutorial Guide
+          </a>
+          <a href="https://typst.app/docs" target="_blank" rel="noopener">
+            ${icons.externalLink} Typst Documentation
+          </a>
+          <a href="https://typst.app/docs/tutorial" target="_blank" rel="noopener">
+            ${icons.externalLink} Official Tutorial
+          </a>
+          <a href="https://typst.app/docs/reference" target="_blank" rel="noopener">
+            ${icons.externalLink} Function Reference
+          </a>
+          <a href="https://typst.app/universe" target="_blank" rel="noopener">
+            ${icons.externalLink} Package Universe
+          </a>
+          <a href="https://github.com/typst/typst" target="_blank" rel="noopener">
+            ${icons.externalLink} Typst GitHub
+          </a>
+          <a href="https://discord.gg/typst" target="_blank" rel="noopener">
+            ${icons.externalLink} Discord Community
+          </a>
+        </div>
+        
+        <h3 style="margin-top: 1.5em;">💡 Tips</h3>
+        <ul class="help-tips">
+          <li>Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to see autocomplete suggestions</li>
+          <li>Drag files directly onto the Uploads section</li>
+          <li>Use the Share button to create a link to your document</li>
+          <li>The app works offline after the first load!</li>
+        </ul>
       </div>
     </div>
   `;
 
-  showModal("Help", content);
+  showModal("Help & Tutorial", content, "large");
+  
+  // Setup tab switching
+  setTimeout(() => {
+    document.querySelectorAll('.help-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        // Remove active from all tabs and contents
+        document.querySelectorAll('.help-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.help-tab-content').forEach(c => c.classList.remove('active'));
+        
+        // Add active to clicked tab and corresponding content
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+  }, 0);
 }
 
 // =====================
@@ -3185,18 +3349,28 @@ function exportPDF() {
 // =====================
 // MODAL
 // =====================
-function showModal(title, content) {
+function showModal(title, content, size = "default") {
   const overlay = document.getElementById("modal-overlay");
   const modal = document.getElementById("modal");
   
   modal.querySelector(".modal-title").textContent = title;
   modal.querySelector(".modal-content").innerHTML = content;
   
+  // Set modal size
+  modal.classList.remove("modal-large", "modal-small");
+  if (size === "large") {
+    modal.classList.add("modal-large");
+  } else if (size === "small") {
+    modal.classList.add("modal-small");
+  }
+  
   overlay.style.display = "flex";
 }
 
 function closeModal() {
   document.getElementById("modal-overlay").style.display = "none";
+  // Reset modal size
+  document.getElementById("modal").classList.remove("modal-large", "modal-small");
 }
 
 // =====================
@@ -4854,6 +5028,15 @@ function addStyles() {
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
     }
+    
+    .modal.modal-large {
+      max-width: 800px;
+      max-height: 85vh;
+    }
+    
+    .modal.modal-small {
+      max-width: 400px;
+    }
 
     .modal-header {
       display: flex;
@@ -4959,8 +5142,50 @@ function addStyles() {
     }
 
     /* Help Content */
+    .help-content {
+      min-height: 400px;
+    }
+    
+    .help-tabs {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 8px;
+    }
+    
+    .help-tab {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 4px 4px 0 0;
+      transition: all 0.15s;
+    }
+    
+    .help-tab:hover {
+      color: var(--text-primary);
+      background: var(--bg-hover);
+    }
+    
+    .help-tab.active {
+      color: var(--accent);
+      background: var(--accent-muted);
+    }
+    
+    .help-tab-content {
+      display: none;
+    }
+    
+    .help-tab-content.active {
+      display: block;
+    }
+    
     .help-content h3 {
-      font-size: 14px;
+      font-size: 15px;
       font-weight: 600;
       margin-bottom: 12px;
       color: var(--text-primary);
@@ -4969,34 +5194,93 @@ function addStyles() {
     .help-content h3:not(:first-child) {
       margin-top: 20px;
     }
+    
+    .help-content h4 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    
+    .help-content p {
+      font-size: 13px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+      line-height: 1.5;
+    }
+    
+    .help-section {
+      margin-bottom: 16px;
+      padding: 12px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+    }
+    
+    .help-code {
+      font-family: "Fira Code", "Consolas", monospace;
+      font-size: 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 10px;
+      margin: 8px 0 0 0;
+      overflow-x: auto;
+      white-space: pre;
+      color: var(--text-primary);
+    }
 
-    .shortcuts-list {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
+    .shortcuts-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    
+    .shortcut-group {
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      padding: 12px;
+    }
+    
+    .shortcut-group h4 {
+      margin-bottom: 10px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
     }
 
     .shortcut {
       display: flex;
       align-items: center;
-      gap: 12px;
-      font-size: 13px;
+      gap: 8px;
+      font-size: 12px;
       color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    
+    .shortcut:last-child {
+      margin-bottom: 0;
     }
 
     .shortcut kbd {
-      background: var(--bg-tertiary);
+      background: var(--bg-primary);
       border: 1px solid var(--border-color);
-      border-radius: 4px;
-      padding: 2px 6px;
+      border-radius: 3px;
+      padding: 2px 5px;
       font-family: inherit;
-      font-size: 11px;
+      font-size: 10px;
+      min-width: 20px;
+      text-align: center;
+    }
+    
+    .shortcut span {
+      flex: 1;
     }
 
     .help-links {
       display: flex;
       flex-direction: column;
-      gap: 8px;
+      gap: 10px;
     }
 
     .help-links a {
@@ -5006,10 +5290,48 @@ function addStyles() {
       color: var(--accent);
       text-decoration: none;
       font-size: 13px;
+      padding: 10px 12px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      transition: all 0.15s;
     }
 
     .help-links a:hover {
-      text-decoration: underline;
+      background: var(--bg-hover);
+    }
+    
+    .help-links a.tutorial-link {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
+      border: 1px solid var(--accent);
+    }
+    
+    .help-links a.tutorial-link:hover {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3));
+    }
+    
+    .help-tips {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    
+    .help-tips li {
+      font-size: 13px;
+      color: var(--text-secondary);
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border-color);
+    }
+    
+    .help-tips li:last-child {
+      border-bottom: none;
+    }
+    
+    .help-tips kbd {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 3px;
+      padding: 2px 5px;
+      font-size: 11px;
     }
 
     .help-links svg {

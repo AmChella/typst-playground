@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Typst Playground - Tutorial</title>
+  <link rel="icon" type="image/png" href="/images/favicon_io/favicon.png">
+  <style>
+    :root {
+      --bg-primary: #0f0f1a;
+      --bg-secondary: #1a1a2e;
+      --bg-tertiary: #252545;
+      --bg-code: #16213e;
+      --text-primary: #ffffff;
+      --text-secondary: #a0a0b0;
+      --text-muted: #6b6b80;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --border-color: #2d2d5a;
+      --success: #22c55e;
+      --warning: #f59e0b;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    /* Header */
+    .header {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 24px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      text-decoration: none;
+      color: var(--text-primary);
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: var(--accent);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+    }
+
+    .logo-text {
+      font-size: 18px;
+      font-weight: 600;
+    }
+
+    .header-nav {
+      display: flex;
+      gap: 16px;
+    }
+
+    .nav-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .nav-link:hover {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      padding: 8px 20px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .btn-primary:hover {
+      background: var(--accent-hover);
+    }
+
+    /* Main Layout */
+    .main-container {
+      display: flex;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* Sidebar Navigation */
+    .sidebar {
+      width: 280px;
+      padding: 24px;
+      position: sticky;
+      top: 80px;
+      height: calc(100vh - 80px);
+      overflow-y: auto;
+      border-right: 1px solid var(--border-color);
+    }
+
+    .sidebar-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+
+    .nav-list {
+      list-style: none;
+    }
+
+    .nav-item {
+      margin-bottom: 4px;
+    }
+
+    .nav-item a {
+      display: block;
+      padding: 8px 12px;
+      color: var(--text-secondary);
+      text-decoration: none;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+
+    .nav-item a:hover {
+      color: var(--text-primary);
+      background: var(--bg-tertiary);
+    }
+
+    .nav-item a.active {
+      color: var(--accent);
+      background: rgba(99, 102, 241, 0.1);
+    }
+
+    .nav-item.section {
+      margin-top: 20px;
+    }
+
+    .nav-item.section > span {
+      display: block;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-muted);
+      padding: 8px 12px 4px;
+    }
+
+    /* Content Area */
+    .content {
+      flex: 1;
+      padding: 40px 60px;
+      max-width: 900px;
+    }
+
+    .content h1 {
+      font-size: 36px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      background: linear-gradient(135deg, var(--accent), #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .content h2 {
+      font-size: 28px;
+      font-weight: 600;
+      margin-top: 48px;
+      margin-bottom: 16px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .content h3 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-top: 32px;
+      margin-bottom: 12px;
+      color: var(--text-primary);
+    }
+
+    .content p {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      font-size: 16px;
+    }
+
+    .content ul, .content ol {
+      color: var(--text-secondary);
+      margin-bottom: 16px;
+      padding-left: 24px;
+    }
+
+    .content li {
+      margin-bottom: 8px;
+    }
+
+    .content a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .content a:hover {
+      text-decoration: underline;
+    }
+
+    /* Code Blocks */
+    .code-block {
+      background: var(--bg-code);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      margin: 16px 0 24px;
+      overflow: hidden;
+    }
+
+    .code-header {
+      background: var(--bg-tertiary);
+      padding: 8px 16px;
+      font-size: 12px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .code-header .copy-btn {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      padding: 4px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.15s;
+    }
+
+    .code-header .copy-btn:hover {
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    pre {
+      padding: 16px;
+      overflow-x: auto;
+      font-family: "Fira Code", "Consolas", "Monaco", monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      margin: 0;
+    }
+
+    code {
+      font-family: "Fira Code", "Consolas", "Monaco", monospace;
+      background: var(--bg-tertiary);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    pre code {
+      background: none;
+      padding: 0;
+    }
+
+    /* Info Boxes */
+    .info-box {
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid;
+    }
+
+    .info-box.tip {
+      background: rgba(34, 197, 94, 0.1);
+      border-color: var(--success);
+    }
+
+    .info-box.tip .title {
+      color: var(--success);
+    }
+
+    .info-box.warning {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: var(--warning);
+    }
+
+    .info-box.warning .title {
+      color: var(--warning);
+    }
+
+    .info-box.note {
+      background: rgba(99, 102, 241, 0.1);
+      border-color: var(--accent);
+    }
+
+    .info-box.note .title {
+      color: var(--accent);
+    }
+
+    .info-box .title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .info-box p {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+    }
+
+    th, td {
+      padding: 12px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    th {
+      background: var(--bg-tertiary);
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    td {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    /* Keyboard shortcuts */
+    kbd {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-family: inherit;
+      font-size: 12px;
+      box-shadow: 0 2px 0 var(--border-color);
+    }
+
+    /* Feature Cards */
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 16px;
+      margin: 24px 0;
+    }
+
+    .feature-card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      transition: all 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+
+    .feature-card .icon {
+      font-size: 32px;
+      margin-bottom: 12px;
+    }
+
+    .feature-card h4 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .feature-card p {
+      font-size: 14px;
+      margin: 0;
+    }
+
+    /* Step by step */
+    .steps {
+      margin: 24px 0;
+    }
+
+    .step {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .step-number {
+      width: 36px;
+      height: 36px;
+      background: var(--accent);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      flex-shrink: 0;
+    }
+
+    .step-content h4 {
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+
+    .step-content p {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    /* Image */
+    .content img {
+      max-width: 100%;
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+      margin: 16px 0;
+    }
+
+    /* Footer */
+    .footer {
+      text-align: center;
+      padding: 40px 24px;
+      border-top: 1px solid var(--border-color);
+      margin-top: 60px;
+      color: var(--text-muted);
+      font-size: 14px;
+    }
+
+    .footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .sidebar {
+        display: none;
+      }
+      
+      .content {
+        padding: 24px;
+      }
+    }
+
+    /* Smooth scrolling */
+    html {
+      scroll-behavior: smooth;
+    }
+
+    /* Section anchors */
+    section {
+      scroll-margin-top: 100px;
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="header-content">
+      <a href="/" class="logo">
+        <div class="logo-icon">T</div>
+        <span class="logo-text">Typst Playground</span>
+      </a>
+      <nav class="header-nav">
+        <a href="/" class="nav-link">Editor</a>
+        <a href="/tutorial.html" class="nav-link" style="color: var(--accent);">Tutorial</a>
+        <a href="https://typst.app/docs" target="_blank" class="nav-link">Docs ↗</a>
+        <a href="/" class="btn-primary">Open Editor</a>
+      </nav>
+    </div>
+  </header>
+
+  <div class="main-container">
+    <aside class="sidebar">
+      <div class="sidebar-title">Tutorial</div>
+      <ul class="nav-list">
+        <li class="nav-item"><a href="#getting-started" class="active">Getting Started</a></li>
+        <li class="nav-item"><a href="#interface">The Interface</a></li>
+        <li class="nav-item"><a href="#first-document">Your First Document</a></li>
+        
+        <li class="nav-item section"><span>Basics</span></li>
+        <li class="nav-item"><a href="#text-formatting">Text Formatting</a></li>
+        <li class="nav-item"><a href="#headings-lists">Headings & Lists</a></li>
+        <li class="nav-item"><a href="#images">Images</a></li>
+        <li class="nav-item"><a href="#tables">Tables</a></li>
+        
+        <li class="nav-item section"><span>Advanced</span></li>
+        <li class="nav-item"><a href="#math">Math Equations</a></li>
+        <li class="nav-item"><a href="#page-setup">Page Setup</a></li>
+        <li class="nav-item"><a href="#custom-fonts">Custom Fonts</a></li>
+        <li class="nav-item"><a href="#templates">Templates</a></li>
+        
+        <li class="nav-item section"><span>Reference</span></li>
+        <li class="nav-item"><a href="#shortcuts">Keyboard Shortcuts</a></li>
+        <li class="nav-item"><a href="#tips">Tips & Tricks</a></li>
+      </ul>
+    </aside>
+
+    <main class="content">
+      <section id="getting-started">
+        <h1>Welcome to Typst Playground</h1>
+        <p>Typst is a modern typesetting system that's designed to be as powerful as LaTeX but much easier to learn. With Typst Playground, you can write documents directly in your browser with live preview.</p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="icon">⚡</div>
+            <h4>Live Preview</h4>
+            <p>See your changes instantly as you type</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📝</div>
+            <h4>Easy Syntax</h4>
+            <p>Write naturally with simple markup</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📄</div>
+            <h4>PDF Export</h4>
+            <p>Download publication-ready PDFs</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🎨</div>
+            <h4>Templates</h4>
+            <p>Start quickly with pre-made templates</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="interface">
+        <h2>The Interface</h2>
+        <p>The editor is divided into three main areas:</p>
+        
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h4>Sidebar (Left)</h4>
+              <p>Manage files, uploaded images, and custom fonts. Toggle with <kbd>Ctrl</kbd>+<kbd>B</kbd>.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h4>Editor (Center)</h4>
+              <p>Write your Typst code here. Features syntax highlighting and autocomplete.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h4>Preview (Right)</h4>
+              <p>See your compiled PDF in real-time. Zoom and navigate pages.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="info-box tip">
+          <div class="title">💡 Tip</div>
+          <p>Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> anywhere in the editor to trigger autocomplete suggestions!</p>
+        </div>
+      </section>
+
+      <section id="first-document">
+        <h2>Your First Document</h2>
+        <p>Let's create a simple document. Type this in the editor:</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>= My First Document
+
+Hello, *Typst*! This is my first document.
+
+== Introduction
+
+Typst makes it easy to create beautiful documents:
+
+- Simple syntax
+- Fast compilation
+- Professional output
+
+== Conclusion
+
+Start writing and see the preview update instantly!</code></pre>
+        </div>
+
+        <p>As you type, the preview on the right updates automatically!</p>
+      </section>
+
+      <section id="text-formatting">
+        <h2>Text Formatting</h2>
+        <p>Typst offers several ways to format your text:</p>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Syntax</th>
+              <th>Result</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>*bold*</code></td>
+              <td><strong>bold</strong></td>
+              <td>Bold text</td>
+            </tr>
+            <tr>
+              <td><code>_italic_</code></td>
+              <td><em>italic</em></td>
+              <td>Italic text</td>
+            </tr>
+            <tr>
+              <td><code>*_both_*</code></td>
+              <td><strong><em>both</em></strong></td>
+              <td>Bold and italic</td>
+            </tr>
+            <tr>
+              <td><code>`code`</code></td>
+              <td><code>code</code></td>
+              <td>Inline code</td>
+            </tr>
+            <tr>
+              <td><code>#underline[text]</code></td>
+              <td><u>text</u></td>
+              <td>Underlined</td>
+            </tr>
+            <tr>
+              <td><code>#strike[text]</code></td>
+              <td><s>text</s></td>
+              <td>Strikethrough</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h3>Advanced Text Styling</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Change text size
+#text(size: 18pt)[Larger text]
+
+// Change text color
+#text(fill: blue)[Blue text]
+#text(fill: rgb("#ff5733"))[Custom color]
+
+// Combined styling
+#text(size: 14pt, fill: red, weight: "bold")[Styled text]</code></pre>
+        </div>
+      </section>
+
+      <section id="headings-lists">
+        <h2>Headings & Lists</h2>
+        
+        <h3>Headings</h3>
+        <p>Use <code>=</code> symbols to create headings. More equals signs = deeper level:</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>= Level 1 Heading
+== Level 2 Heading
+=== Level 3 Heading
+==== Level 4 Heading</code></pre>
+        </div>
+
+        <h3>Bullet Lists</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>- First item
+- Second item
+  - Nested item
+  - Another nested
+- Third item</code></pre>
+        </div>
+
+        <h3>Numbered Lists</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>+ First step
++ Second step
++ Third step</code></pre>
+        </div>
+      </section>
+
+      <section id="images">
+        <h2>Images</h2>
+        <p>To use images in your document:</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h4>Upload the Image</h4>
+              <p>Drag and drop your image onto the <strong>Uploads</strong> section in the sidebar, or click the upload button.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h4>Reference in Code</h4>
+              <p>Use the <code>#image()</code> function with your filename.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Basic image
+#image("photo.png")
+
+// With width constraint
+#image("photo.png", width: 50%)
+
+// Image with caption (figure)
+#figure(
+  image("photo.png", width: 80%),
+  caption: [A beautiful photograph]
+)</code></pre>
+        </div>
+
+        <div class="info-box note">
+          <div class="title">📌 Note</div>
+          <p>Supported formats: PNG, JPG, JPEG, GIF, SVG, WebP</p>
+        </div>
+      </section>
+
+      <section id="tables">
+        <h2>Tables</h2>
+        <p>Create tables with the <code>#table()</code> function:</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Simple table
+#table(
+  columns: 3,
+  [*Name*], [*Age*], [*City*],
+  [Alice], [28], [New York],
+  [Bob], [32], [London],
+  [Carol], [25], [Tokyo],
+)</code></pre>
+        </div>
+
+        <h3>Styled Table</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>#table(
+  columns: (1fr, 2fr, 1fr),
+  align: (left, center, right),
+  stroke: 0.5pt + gray,
+  inset: 10pt,
+  
+  // Header with background
+  table.header(
+    table.cell(fill: blue.lighten(80%))[*Item*],
+    table.cell(fill: blue.lighten(80%))[*Description*],
+    table.cell(fill: blue.lighten(80%))[*Price*],
+  ),
+  
+  [Apple], [Fresh red apple], [$1.50],
+  [Banana], [Organic banana], [$0.75],
+)</code></pre>
+        </div>
+      </section>
+
+      <section id="math">
+        <h2>Math Equations</h2>
+        <p>Typst has excellent math support. Use <code>$</code> for math mode:</p>
+
+        <h3>Inline Math</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>The famous equation $E = m c^2$ describes mass-energy equivalence.
+
+The quadratic formula is $x = (-b plus.minus sqrt(b^2 - 4a c)) / (2a)$.</code></pre>
+        </div>
+
+        <h3>Display Math (Block)</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>The integral of a Gaussian function:
+
+$ integral_(-infinity)^(infinity) e^(-x^2) dif x = sqrt(pi) $
+
+A matrix example:
+
+$ mat(
+  1, 2, 3;
+  4, 5, 6;
+  7, 8, 9;
+) $</code></pre>
+        </div>
+
+        <h3>Common Math Symbols</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Code</th>
+              <th>Symbol</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td><code>alpha, beta, gamma</code></td><td>α, β, γ</td><td>Greek letters</td></tr>
+            <tr><td><code>sum, integral, product</code></td><td>Σ, ∫, Π</td><td>Operations</td></tr>
+            <tr><td><code>arrow.r, arrow.l</code></td><td>→, ←</td><td>Arrows</td></tr>
+            <tr><td><code>infinity, partial</code></td><td>∞, ∂</td><td>Special symbols</td></tr>
+            <tr><td><code><=, >=, !=</code></td><td>≤, ≥, ≠</td><td>Relations</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="page-setup">
+        <h2>Page Setup</h2>
+        <p>Configure your document's appearance with <code>#set</code> rules:</p>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Page configuration
+#set page(
+  paper: "a4",
+  margin: (x: 2.5cm, y: 3cm),
+)
+
+// Text settings
+#set text(
+  font: "New Computer Modern",
+  size: 11pt,
+)
+
+// Paragraph settings
+#set par(
+  justify: true,
+  leading: 0.65em,
+)
+
+// Heading numbering
+#set heading(numbering: "1.1")</code></pre>
+        </div>
+
+        <h3>Headers & Footers</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>#set page(
+  header: [
+    _My Document_
+    #h(1fr)
+    #datetime.today().display()
+  ],
+  footer: [
+    #h(1fr)
+    Page #counter(page).display()
+    #h(1fr)
+  ],
+)</code></pre>
+        </div>
+      </section>
+
+      <section id="custom-fonts">
+        <h2>Custom Fonts</h2>
+        <p>Upload and use your own fonts:</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h4>Upload Font File</h4>
+              <p>Click the <strong>Fonts</strong> section and upload your TTF, OTF, WOFF, or WOFF2 file.</p>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h4>Use the Font</h4>
+              <p>Reference it by name in your document:</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Set for entire document
+#set text(font: "My Custom Font")
+
+// Or use for specific text
+#text(font: "My Custom Font")[This uses the custom font]</code></pre>
+        </div>
+
+        <div class="info-box tip">
+          <div class="title">💡 Tip</div>
+          <p>When typing <code>font: "</code>, autocomplete will show your uploaded fonts first!</p>
+        </div>
+      </section>
+
+      <section id="templates">
+        <h2>Templates</h2>
+        <p>Start quickly with pre-made templates. Click <strong>Templates</strong> in the toolbar to access:</p>
+
+        <div class="feature-grid">
+          <div class="feature-card">
+            <div class="icon">📄</div>
+            <h4>Blank</h4>
+            <p>Start from scratch</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📰</div>
+            <h4>Article</h4>
+            <p>Academic paper with sections</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">✉️</div>
+            <h4>Letter</h4>
+            <p>Formal business letter</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📋</div>
+            <h4>Resume</h4>
+            <p>Professional CV</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">📊</div>
+            <h4>Report</h4>
+            <p>Business report</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🎯</div>
+            <h4>Slides</h4>
+            <p>Presentation deck</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🔢</div>
+            <h4>Math Notes</h4>
+            <p>Math-heavy document</p>
+          </div>
+          <div class="feature-card">
+            <div class="icon">🎓</div>
+            <h4>Thesis</h4>
+            <p>Academic thesis</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="shortcuts">
+        <h2>Keyboard Shortcuts</h2>
+
+        <h3>Document</h3>
+        <table>
+          <tbody>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save document</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Export PDF</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Enter</kbd></td><td>Recompile</td></tr>
+          </tbody>
+        </table>
+
+        <h3>Editor</h3>
+        <table>
+          <tbody>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>F</kbd></td><td>Find</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>H</kbd></td><td>Find & Replace</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>/</kbd></td><td>Toggle comment</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Space</kbd></td><td>Autocomplete</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Redo</td></tr>
+          </tbody>
+        </table>
+
+        <h3>View</h3>
+        <table>
+          <tbody>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Toggle sidebar</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>+</kbd></td><td>Zoom in</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>-</kbd></td><td>Zoom out</td></tr>
+            <tr><td><kbd>Ctrl</kbd>+<kbd>0</kbd></td><td>Reset zoom</td></tr>
+            <tr><td><kbd>F1</kbd></td><td>Help</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="tips">
+        <h2>Tips & Tricks</h2>
+
+        <h3>1. Use Functions for Reusable Styles</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Define a reusable note box
+#let note(body) = box(
+  fill: yellow.lighten(80%),
+  inset: 10pt,
+  radius: 4pt,
+  body
+)
+
+// Use it anywhere
+#note[This is an important note!]
+#note[Another note here.]</code></pre>
+        </div>
+
+        <h3>2. Quick Comments</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// This is a single-line comment
+
+/* This is a
+   multi-line
+   comment */</code></pre>
+        </div>
+
+        <h3>3. Links & References</h3>
+        <div class="code-block">
+          <div class="code-header">
+            <span>Typst</span>
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+          </div>
+          <pre><code>// Web link
+#link("https://typst.app")[Visit Typst]
+
+// Email link
+#link("mailto:hello@example.com")[Contact Us]
+
+// Internal reference
+= Introduction <intro>
+
+See @intro for more details.</code></pre>
+        </div>
+
+        <h3>4. Share Your Work</h3>
+        <p>Click the <strong>Share</strong> button to generate a link. Anyone with the link can view and edit a copy of your document!</p>
+
+        <h3>5. Offline Support</h3>
+        <p>After your first visit, Typst Playground works offline. Your documents are saved locally in your browser.</p>
+
+        <div class="info-box tip">
+          <div class="title">🚀 Ready to Start?</div>
+          <p><a href="/">Open the Editor</a> and start creating beautiful documents!</p>
+        </div>
+      </section>
+
+      <footer class="footer">
+        <p>
+          Made with ❤️ for the Typst community • 
+          <a href="https://typst.app/docs" target="_blank">Official Docs</a> • 
+          <a href="https://github.com/typst/typst" target="_blank">GitHub</a>
+        </p>
+      </footer>
+    </main>
+  </div>
+
+  <script>
+    // Copy code functionality
+    function copyCode(btn) {
+      const codeBlock = btn.closest('.code-block');
+      const code = codeBlock.querySelector('code').textContent;
+      
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+        }, 2000);
+      });
+    }
+
+    // Highlight active nav item on scroll
+    const sections = document.querySelectorAll('section[id]');
+    const navLinks = document.querySelectorAll('.nav-item a');
+
+    function updateActiveNav() {
+      const scrollPos = window.scrollY + 150;
+      
+      sections.forEach(section => {
+        const top = section.offsetTop;
+        const height = section.offsetHeight;
+        const id = section.getAttribute('id');
+        
+        if (scrollPos >= top && scrollPos < top + height) {
+          navLinks.forEach(link => {
+            link.classList.remove('active');
+            if (link.getAttribute('href') === '#' + id) {
+              link.classList.add('active');
+            }
+          });
+        }
+      });
+    }
+
+    window.addEventListener('scroll', updateActiveNav);
+    updateActiveNav();
+  </script>
+</body>
+</html>
+
