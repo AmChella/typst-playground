@@ -1,3 +1,4 @@
+// #set text(font: "CharisSIL-Regular")
 // #set text(font: "Suissnord Deux D")
 // ============================================================
 // ELSEVIER JOURNAL ARTICLE TEMPLATE
@@ -71,7 +72,7 @@
   )
 
   // Text setup
-  set text(font: "Suissnord Deux D", size: 10pt)
+  set text(font: "CharisSIL-Regular", size: 10pt)
   set par(justify: true, leading: 0.65em)
   set heading(numbering: "1.")
 
@@ -86,7 +87,7 @@
     block(above: 1.2em, below: 0.6em)[#it]
   }
 
-  line(length: 80%, stroke: 0.1pt)
+  line(length: 85%, stroke: 0.1pt)
   grid(
   columns: (20%, 66%, 20%),
   gutter: 0em,
@@ -135,10 +136,10 @@
       if i > 0 [, ]
         text(size: 12pt)[#author.name]
       if author.at("affils", default: ()).len() > 0 {
-        text(fill:blue)[#super(author.affils.join(","))]
+        text(fill:blue, size: 12pt)[#super(author.affils.join(","))]
       }
       if author.at("corr", default: false) {
-        text(fill:blue)[#super[⁎]]
+        text(fill:blue, size: 12pt)[#super[⁎]]
       }
     }
   ]
@@ -216,22 +217,22 @@
   authors: (
     (
       name: "First Author",
-      affils: ("a", "b"),
+      affils: (" a", "b"),
       corr: true,
       email: "first.author@university.edu",
       affil-full: "Department of Science, University Name, City, Country.",
     ),
     (
       name: "Second Author",
-      affils: ("c",),
+      affils: (" c",),
     ),
     (
       name: "Third Author",
-      affils: ("d",),
+      affils: (" d",),
     ),
     (
       name: "Fourth Author",
-      affils: ("e",),
+      affils: (" e",),
       corr: true,
       email: "fourth.author@university.edu",
       affil-full: "Department of Research, Another University, City, Country.",
