@@ -1,4 +1,4 @@
-#set text(font: "ARIALUNI")
+// #set text(font: "Suissnord Deux D")
 // ============================================================
 // ELSEVIER JOURNAL ARTICLE TEMPLATE
 // ============================================================
@@ -21,6 +21,8 @@
   title: "Article Title",
   authors: (),
   affiliations: (:),
+  labelAinfo: "Abstract Info",
+  abstractLabel: "Abstract",
   abstract: [],
   highlights: (),
   keywords: "",
@@ -33,22 +35,43 @@
     title: title,
     author: authors.map(a => a.name),
   )
-
   // Page setup
   set page(
     paper: "a4",
-    margin: (x: 2.5cm, y: 2.5cm),
+    margin: (
+      top: 2cm,
+      bottom: 2.5cm,
+      left: 1.5cm,
+      right: 1.5cm
+    ),
     header: context {
       if counter(page).get().first() > 1 [
         #set text(size: 9pt)
         #authors.first().name.split(" ").last() et al. #h(1fr) #journal
       ]
     },
-    numbering: "1",
+     // Footer visible ONLY on page 1
+    footer: context {
+      let pg = counter(page).get().at(0)
+      if pg == 1 [
+        #set text(size: 9pt)
+        #line(length: 10%, stroke: 1pt)
+        #align(left)[
+        #text(size: 8pt)[
+          #let corr-authors = authors.filter(a => a.at("corr", default: false))
+          #for (i, author) in corr-authors.enumerate() [
+            #if i == 0 [#super[⁎]] else [#super[⁎⁎]] Corresponding author. #author.at("affil-full", default: "") \
+          ]
+          _E-mail addresses:_ #authors.filter(a => a.at("email", default: none) != none).map(a => [#link("mailto:" + a.email)[#a.email.replace("@", "\\@")] (#a.name.split(" ").last())]).join(", ")
+          ]
+        ]
+      ]
+    },
+    numbering: "1"
   )
 
   // Text setup
-  set text(font: "New Computer Modern", size: 10pt)
+  set text(font: "Suissnord Deux D", size: 10pt)
   set par(justify: true, leading: 0.65em)
   set heading(numbering: "1.")
 
@@ -63,31 +86,60 @@
     block(above: 1.2em, below: 0.6em)[#it]
   }
 
-  // Journal header
-  align(center)[
-    #text(size: 14pt, weight: "bold")[#journal]
-    #v(0.3em)
-    #link(journal-url)[#journal-url.split("//").at(1)]
+  line(length: 80%, stroke: 0.1pt)
+  grid(
+  columns: (20%, 66%, 20%),
+  gutter: 0em,
+  row-gutter: 0pt,
+  // Left column
+  [
+    #image("elsevier_logo_wide.png", width: 70%)
+  ],
+  // Middle column with background color
+  box(
+    fill: luma(245),
+    inset: (left: 56pt, top: 5pt, bottom: 5pt, right: 56pt),          // Add padding so text doesn't touch edges
+    radius: 0pt          // Optional: rounded corners
+  )[
+    #align(center)[
+      #text("Contents lists available at ")
+      #text(fill: blue)[ScienceDirect]
+      #v(0.3cm)
+      #text(size: 14pt, weight: "bold")[#journal]
+      #v(0.5em)
+      #link(journal-url)[#journal-url.split("//").at(1)]
+    ]
+  ],
+  // Right column
+  [
+    #image("s_NA103569.jpg", width: 70%)
   ]
+)
 
+  // Journal header
+
+
+  line(length: 100%, stroke: 2pt)
   v(1em)
 
   // Title
-  align(center)[
+  align(left)[
     #text(size: 16pt, weight: "bold")[#title]
   ]
 
   v(1em)
 
   // Authors
-  align(center)[
+  align(left)[
     #for (i, author) in authors.enumerate() {
       if i > 0 [, ]
-      author.name
+        text(size: 12pt)[#author.name]
       if author.at("affils", default: ()).len() > 0 {
-        super(author.affils.join(","))
+        text(fill:blue)[#super(author.affils.join(","))]
       }
-      if author.at("corr", default: false) [#super[⁎]]
+      if author.at("corr", default: false) {
+        text(fill:blue)[#super[⁎]]
+      }
     }
   ]
 
@@ -101,64 +153,39 @@
 
   v(0.5em)
 
-  // Corresponding author info
-  text(size: 8pt)[
-    #let corr-authors = authors.filter(a => a.at("corr", default: false))
-    #for (i, author) in corr-authors.enumerate() [
-      #if i == 0 [#super[⁎]] else [#super[⁎⁎]] Corresponding author. #author.at("affil-full", default: "") \
-    ]
-    _E-mail addresses:_ #authors.filter(a => a.at("email", default: none) != none).map(a => [#link("mailto:" + a.email)[#a.email.replace("@", "\\@")] (#a.name.split(" ").last())]).join(", ")
-  ]
-
   set text(size: 10pt)
   v(0.5em)
   line(length: 100%, stroke: 0.5pt)
 
   // Article info box
   block(
-    fill: luma(245),
-    inset: 10pt,
-    radius: 4pt,
+    radius: 0pt,
     width: 100%,
   )[
     #grid(
       columns: (1fr, 2fr),
-      gutter: 1em,
+      gutter: 3em,
       [
-        #text(weight: "bold")[Article info] \
-        #text(size: 9pt)[
-          _Received_ #received \
-          _Revised_ #revised \
-          _Accepted_ #accepted
+        #text(size: 9pt, tracking: 0.3em)[
+          #upper[#labelAinfo]
+        ] \
+        #line(length: 100%, stroke: 0.3pt)
+        #text(size: 9pt)[_Keywords:_] \
+        #for keyword in keywords [
+          #text(size: 8pt)[#keyword] \
         ]
       ],
       [
-        #text(weight: "bold")[Abstract] \
+        #text(size: 9pt, tracking: 0.3em)[
+          #upper[#abstractLabel]
+        ] \
+        #line(length: 100%, stroke: 0.5pt)
         #text(size: 9pt)[#abstract]
       ]
     )
   ]
 
-  v(0.5em)
-
-  // Highlights
-  if highlights.len() > 0 {
-    block(
-      stroke: (left: 3pt + rgb("#0066cc")),
-      inset: (left: 10pt, y: 8pt),
-    )[
-      #text(weight: "bold")[Highlights]
-      #for highlight in highlights [
-        - #highlight
-      ]
-    ]
-    v(0.5em)
-  }
-
-  // Keywords
-  [#text(weight: "bold")[Keywords:] #keywords]
-
-  v(1em)
+  // v(1em)
   line(length: 100%, stroke: 0.5pt)
   v(1em)
 
@@ -223,9 +250,8 @@
 
   // Abstract
   abstract: [
-    Write your abstract here. The abstract should provide a comprehensive summary of your research including the background, objectives, methods, key results, and conclusions. This section typically ranges from 150-300 words depending on journal requirements. Make sure to highlight the significance and novelty of your work.
+    #lorem(100)
   ],
-
   // Highlights (key points)
   highlights: (
     "First key finding or contribution of the research.",
@@ -235,7 +261,7 @@
   ),
 
   // Keywords
-  keywords: "Keyword1; Keyword2; Keyword3; Keyword4; Keyword5",
+  keywords: ("Keyword1", "Keyword2", "Keyword3","Keyword4", "Keyword5"),
 )
 
 // ============================================================
@@ -245,33 +271,27 @@
 
 = Introduction
 
-Write your introduction here. Provide the background, context, motivation, and objectives of your research.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.
+#lorem(300)
 
 = Literature Review
-
+#lorem(100)
 == Previous Work
-
-Summarize relevant previous studies and establish the theoretical framework.
+#lorem(100)
 
 == Research Gap
 
-Identify the gaps in current knowledge that your research addresses.
+#lorem(200)
 
 = Materials and Methods
-
+#lorem(1000)
 == Study Design
-
-Describe your experimental or analytical approach.
+#lorem(200)
 
 == Data Collection
-
-Detail your data collection procedures, samples, and measurements.
+#lorem(200)
 
 == Analysis
-
-Explain your analytical methods and statistical approaches.
+#lorem(200)
 
 #figure(
   rect(width: 100%, height: 150pt, fill: luma(230))[
@@ -281,33 +301,33 @@ Explain your analytical methods and statistical approaches.
 ) <fig1>
 
 = Results
-
+#lorem(200)
 == Primary Findings
-
-Present your main results here. Reference figures and tables as needed (see @fig1).
+#lorem(200)
+Present your main results here. Reference figures and tables as needed (see #text(fill: blue)[@fig1]).
 
 == Secondary Findings
-
+#lorem(200)
 Present additional results and observations.
 
 = Discussion
-
+#lorem(200)
 Discuss the implications of your findings in the context of existing literature.
 
 == Interpretation
-
+#lorem(200)
 Explain what your results mean and how they advance the field.
 
 == Limitations
-
+#lorem(400)
 Acknowledge the limitations of your study.
 
 == Future Directions
-
+#lorem(200)
 Suggest directions for future research.
 
 = Conclusions
-
+#lorem(200)
 Summarize your key findings and their significance. Restate the main contributions of your work.
 
 = CRediT Authorship Contribution Statement
@@ -315,27 +335,26 @@ Summarize your key findings and their significance. Restate the main contributio
 *First Author:* Writing – review & editing, Writing – original draft, Funding acquisition, Conceptualization. *Second Author:* Writing – review & editing, Writing – original draft. *Third Author:* Methodology, Investigation. *Fourth Author:* Writing – review & editing, Supervision, Funding acquisition, Conceptualization.
 
 = Funding
-
+#lorem(200)
 This work was supported by [Funding Agency], [Country], under grant [Grant Number].
 
 = Declaration of Competing Interest
-
+#lorem(200)
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
 = Acknowledgments
-
+#lorem(200)
 The authors thank [acknowledgments for institutions, colleagues, technical support, etc.].
-
-]
 
 // ============================================================
 // TABLES - Full width section
 // ============================================================
-#set page(columns: 1)
+// #set page(columns: 1)
 
 #figure(
-  table(
-    columns: (auto, 2fr, 1fr, 1fr, 1.5fr),
+  rotate(360deg)[
+  #table(
+    columns: (auto, 1fr, 1fr, 1fr, 1fr),
     inset: 6pt,
     align: left,
     stroke: none,
@@ -350,18 +369,18 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
     [4.], [Sample item four], [Value], [Unit], [Additional info],
     [5.], [Sample item five], [Value], [Unit], [Additional info],
     table.hline(),
-  ),
+  )],
   caption: [Your table caption describing the data presented.],
 ) <tbl1>
 
-#pagebreak()
+
+// #pagebreak()
 
 // ============================================================
 // REFERENCES
 // ============================================================
 #heading(numbering: none)[References]
 #set text(size: 9pt)
-#columns(2, gutter: 12pt)[
 
 #let refs = (
   bib1: "Author A, Author B (2024) Title of the first reference article. Journal Name 10:100-110.",
@@ -370,7 +389,6 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
   bib4: "Author G (2021) Book Title: Subtitle. Publisher Name, City.",
   bib5: "Author H, Author I (2020) Conference paper title. In: Proceedings of Conference Name, City, pp. 100-110.",
 )
-
 #for (i, (key, value)) in refs.pairs().enumerate() [
   [#{i + 1}] #value \
 ]

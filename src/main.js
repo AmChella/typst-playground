@@ -16,7 +16,7 @@ self.MonacoEnvironment = {
 };
 
 // Import our modules
-import { registerTypstLanguage } from "./typst-language.js";
+import { registerTypstLanguage, updateCustomFonts } from "./typst-language.js";
 import { initStorage, saveDocument, getDocument, getAllDocuments, deleteDocument, getMostRecentDocument, saveFile, getFile, getAllFiles, deleteFile, fileToArrayBuffer } from "./storage.js";
 import { templates, getTemplate, getTemplateList } from "./templates.js";
 import { getSharedContent, hasSharedContent, clearShareParam, copyShareLink, getShareLinkInfo } from "./share.js";
@@ -155,6 +155,9 @@ async function init() {
 
   // Load uploaded files into virtual filesystem
   await loadFilesIntoVFS();
+  
+  // Preload sample assets (images for templates)
+  await preloadSampleAssets();
   
   // Load saved fonts
   await loadSavedFonts();
@@ -2007,6 +2010,9 @@ function setupUI() {
   
   // Update uploads list
   updateUploadsList();
+  
+  // Setup drag and drop for uploads
+  setupUploadsDragDrop();
 }
 
 function setupEventListeners() {
@@ -2548,29 +2554,75 @@ function setupKeyboardShortcuts() {
 // FILE UPLOADS
 // =====================
 async function handleFileUpload(event) {
-  const files = event.target.files;
-  if (!files.length) return;
+  const files = event.target.files || (event.dataTransfer && event.dataTransfer.files);
+  if (!files || !files.length) {
+    console.log("[Upload] No files selected");
+    return;
+  }
+
+  console.log(`[Upload] Processing ${files.length} file(s)`);
 
   for (const file of files) {
+    console.log(`[Upload] Processing: ${file.name} (${file.type}, ${file.size} bytes)`);
     try {
       const buffer = await fileToArrayBuffer(file);
       const path = file.name;
 
       const fileType = getFileType(file.name);
+      console.log(`[Upload] File type detected: ${fileType}`);
+      
       await saveFile(path, buffer, fileType, DOCUMENT_ID);
 
       currentFiles.set(path, new Uint8Array(buffer));
+      console.log(`[Upload] Added to VFS: ${path}`);
 
       showToast(`Uploaded: ${file.name}`);
     } catch (e) {
-      console.error("Upload failed:", e);
+      console.error("[Upload] Failed:", e);
       showToast(`Failed to upload: ${file.name}`);
     }
   }
 
   updateUploadsList();
   compile(editor.getValue());
-  event.target.value = "";
+  if (event.target && event.target.value !== undefined) {
+    event.target.value = "";
+  }
+}
+
+// Setup drag and drop for uploads section
+function setupUploadsDragDrop() {
+  const uploadsList = document.getElementById("uploads-list");
+  if (!uploadsList) return;
+  
+  // Prevent default drag behaviors
+  ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
+    uploadsList.addEventListener(eventName, (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, false);
+  });
+  
+  // Highlight drop zone
+  ["dragenter", "dragover"].forEach(eventName => {
+    uploadsList.addEventListener(eventName, () => {
+      uploadsList.classList.add("drag-over");
+    }, false);
+  });
+  
+  ["dragleave", "drop"].forEach(eventName => {
+    uploadsList.addEventListener(eventName, () => {
+      uploadsList.classList.remove("drag-over");
+    }, false);
+  });
+  
+  // Handle dropped files
+  uploadsList.addEventListener("drop", (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      handleFileUpload({ dataTransfer: e.dataTransfer });
+    }
+  }, false);
 }
 
 function getFileType(filename) {
@@ -2595,6 +2647,41 @@ async function loadFilesIntoVFS() {
   } catch (e) {
     console.warn("Failed to load files:", e);
   }
+}
+
+// Preload sample assets from public folder into VFS
+async function preloadSampleAssets() {
+  const sampleAssets = [
+    { path: "elsevier_logo_wide.png", url: "/assets/elsevier_logo_wide.png" },
+    { path: "s_NA103569.jpg", url: "/assets/s_NA103569.jpg" },
+  ];
+  
+  console.log(`[Preload] Loading ${sampleAssets.length} sample assets...`);
+  
+  for (const asset of sampleAssets) {
+    // Skip if already loaded
+    if (currentFiles.has(asset.path)) {
+      console.log(`[Preload] Skipping ${asset.path} (already loaded)`);
+      continue;
+    }
+    
+    try {
+      console.log(`[Preload] Fetching ${asset.url}...`);
+      const response = await fetch(asset.url);
+      if (response.ok) {
+        const buffer = await response.arrayBuffer();
+        currentFiles.set(asset.path, new Uint8Array(buffer));
+        console.log(`[Preload] Loaded: ${asset.path} (${buffer.byteLength} bytes)`);
+      } else {
+        console.warn(`[Preload] Failed to load ${asset.path}: ${response.status}`);
+      }
+    } catch (e) {
+      console.warn(`[Preload] Error loading ${asset.path}:`, e);
+    }
+  }
+  
+  // Update the uploads list to show preloaded assets
+  updateUploadsList();
 }
 
 function updateUploadsList() {
@@ -2709,10 +2796,21 @@ async function loadSavedFonts() {
 function sendFontsToWorker() {
   if (!compilerWorker) return;
   
-  const fontData = loadedFonts.map(f => ({
-    name: f.name,
-    data: f.data
-  }));
+  console.log(`[Main] Sending ${loadedFonts.length} fonts to worker`);
+  
+  // Update autocomplete with custom font names
+  updateCustomFonts(loadedFonts.map(f => f.name));
+  
+  // Create copies of font data to ensure proper transfer
+  const fontData = loadedFonts.map(f => {
+    // Create a copy of the Uint8Array
+    const dataCopy = new Uint8Array(f.data);
+    console.log(`[Main] Font: ${f.name}, size: ${dataCopy.length} bytes`);
+    return {
+      name: f.name,
+      data: dataCopy
+    };
+  });
   
   compilerWorker.postMessage({
     type: 'loadFonts',
@@ -3433,6 +3531,17 @@ function addStyles() {
 
     .file-tree, .uploads-list, .fonts-list {
       padding: 4px 8px;
+    }
+    
+    .uploads-list {
+      min-height: 50px;
+      transition: all 0.2s;
+    }
+    
+    .uploads-list.drag-over {
+      background: var(--accent-muted);
+      border: 2px dashed var(--accent);
+      border-radius: 6px;
     }
 
     .file-item, .font-item {

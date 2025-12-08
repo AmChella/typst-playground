@@ -10,4 +10,12 @@ export default defineConfig({
   build: {
     target: "esnext",
   },
+  // Serve docs folder as public directory for sample files and images
+  publicDir: "public",
+  server: {
+    fs: {
+      // Allow serving files from docs directory
+      allow: [".", "docs"],
+    },
+  },
 });

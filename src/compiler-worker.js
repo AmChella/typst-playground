@@ -27,46 +27,45 @@ async function loadModule() {
 
 // Create a fresh compiler for each compilation
 async function createFreshCompiler() {
+  // Log available typst module exports for debugging (only once)
+  if (!createFreshCompiler.logged) {
+    console.log("[Compiler Worker] typst.ts exports:", Object.keys(typstModule));
+    createFreshCompiler.logged = true;
+  }
+  
   const compiler = typstModule.createTypstCompiler();
   
-  // Convert custom fonts to Blobs
-  const customFontBlobs = customFonts.map(font => {
-    const ext = font.name.split('.').pop().toLowerCase();
-    let mimeType = 'font/ttf';
-    if (ext === 'otf') mimeType = 'font/otf';
-    else if (ext === 'woff') mimeType = 'font/woff';
-    else if (ext === 'woff2') mimeType = 'font/woff2';
-    
-    console.log(`[Compiler Worker] Preparing font: ${font.name} (${mimeType})`);
-    return new Blob([font.data], { type: mimeType });
+  // loadFonts accepts Uint8Array directly (not Blobs!)
+  const fontDataArrays = customFonts.map(font => {
+    console.log(`[Compiler Worker] Preparing font: ${font.name} (${font.data.length} bytes)`);
+    // Ensure it's a proper Uint8Array
+    return font.data instanceof Uint8Array ? font.data : new Uint8Array(font.data);
   });
   
-  // Determine which font loading function to use
-  const fontLoader = typstModule.preloadRemoteFonts || typstModule.loadFonts;
-  
-  if (!fontLoader) {
-    console.warn("[Compiler Worker] No font loader function found in typst module");
-    console.log("[Compiler Worker] Available exports:", Object.keys(typstModule));
-  }
-  
-  const beforeBuildHooks = [];
-  
-  if (fontLoader) {
-    // Load fonts with the available loader
-    if (customFontBlobs.length > 0) {
-      console.log(`[Compiler Worker] Loading ${customFontBlobs.length} custom fonts`);
-      beforeBuildHooks.push(fontLoader(customFontBlobs, { assets: ["text"] }));
-    } else {
-      // Load just system fonts
-      beforeBuildHooks.push(fontLoader([], { assets: ["text"] }));
-    }
-  }
-  
-  await compiler.init({
+  // Build initialization options
+  const initOptions = {
     getModule: () =>
       "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm",
-    beforeBuild: beforeBuildHooks,
-  });
+    beforeBuild: [],
+  };
+  
+  // Use loadFonts with Uint8Array data + default text assets
+  const fontLoader = typstModule.loadFonts || typstModule.preloadRemoteFonts;
+  if (fontLoader) {
+    // Pass font data as Uint8Array directly, along with default text fonts
+    initOptions.beforeBuild.push(
+      fontLoader(fontDataArrays, { assets: ["text"] })
+    );
+    console.log(`[Compiler Worker] Loading ${fontDataArrays.length} custom fonts with default text assets`);
+  }
+  
+  await compiler.init(initOptions);
+  
+  // Log compiler methods for debugging (only once)
+  if (!createFreshCompiler.compilerLogged) {
+    console.log("[Compiler Worker] Compiler methods:", Object.keys(compiler));
+    createFreshCompiler.compilerLogged = true;
+  }
   
   return compiler;
 }
@@ -82,8 +81,24 @@ self.onmessage = async (event) => {
 
   // Handle font loading message
   if (type === 'loadFonts') {
-    customFonts = fonts || [];
-    console.log(`[Compiler Worker] Loaded ${customFonts.length} custom fonts`);
+    customFonts = (fonts || []).map(font => {
+      // Ensure data is Uint8Array
+      let data = font.data;
+      if (!(data instanceof Uint8Array)) {
+        if (data instanceof ArrayBuffer) {
+          data = new Uint8Array(data);
+        } else if (Array.isArray(data)) {
+          data = new Uint8Array(data);
+        } else if (data && data.buffer) {
+          data = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+        }
+      }
+      return { name: font.name, data };
+    });
+    console.log(`[Compiler Worker] Received ${customFonts.length} custom fonts:`);
+    customFonts.forEach(f => {
+      console.log(`  - ${f.name}: ${f.data?.length || 0} bytes, type: ${f.data?.constructor?.name}`);
+    });
     return;
   }
 
