@@ -169,6 +169,11 @@ async function init() {
   setupKeyboardShortcuts();
 
   isInitialized = true;
+  
+  // Show onboarding tutorial for first-time users
+  if (!localStorage.getItem('tutorialCompleted')) {
+    setTimeout(() => startOnboardingTutorial(), 500);
+  }
 }
 
 // =====================
@@ -2618,6 +2623,12 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
           <li>Use the Share button to create a link to your document</li>
           <li>The app works offline after the first load!</li>
         </ul>
+        
+        <div class="restart-tutorial-section">
+          <button class="btn restart-tutorial-btn" id="restart-tutorial-btn">
+            🎓 Restart Welcome Tour
+          </button>
+        </div>
       </div>
     </div>
   `;
@@ -2637,7 +2648,295 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
         document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
       });
     });
+    
+    // Restart tutorial button
+    const restartBtn = document.getElementById('restart-tutorial-btn');
+    if (restartBtn) {
+      restartBtn.addEventListener('click', () => {
+        closeModal();
+        setTimeout(() => restartTutorial(), 300);
+      });
+    }
   }, 0);
+}
+
+// =====================
+// ONBOARDING TUTORIAL
+// =====================
+const tutorialSteps = [
+  {
+    title: "Welcome to Typst Playground! 👋",
+    content: "Let's take a quick tour of the editor. This will only take a minute!",
+    target: null, // No highlight for welcome
+    position: "center"
+  },
+  {
+    title: "Code Editor",
+    content: "Write your Typst code here. The editor features syntax highlighting, autocomplete, and line numbers.",
+    target: "#monaco-editor",
+    position: "right"
+  },
+  {
+    title: "Live Preview",
+    content: "Your document compiles automatically as you type! See the PDF preview update in real-time.",
+    target: "#pdf-container",
+    position: "left"
+  },
+  {
+    title: "Sidebar",
+    content: "Manage your files, uploaded images, and custom fonts here. Toggle it with Ctrl+B.",
+    target: ".sidebar",
+    position: "right"
+  },
+  {
+    title: "Templates",
+    content: "Start quickly with pre-made templates for articles, letters, resumes, and more!",
+    target: "#btn-templates",
+    position: "bottom"
+  },
+  {
+    title: "Upload Files",
+    content: "Upload images and assets by clicking here or dragging files to the Uploads section.",
+    target: "#btn-upload",
+    position: "bottom"
+  },
+  {
+    title: "Custom Fonts",
+    content: "Upload your own fonts (TTF, OTF, WOFF) to use in your documents.",
+    target: "#btn-upload-font",
+    position: "bottom"
+  },
+  {
+    title: "Export PDF",
+    content: "When you're ready, download your document as a PDF file.",
+    target: "#btn-export",
+    position: "bottom"
+  },
+  {
+    title: "Share Your Work",
+    content: "Generate a shareable link so others can view or remix your document.",
+    target: "#btn-share",
+    position: "bottom"
+  },
+  {
+    title: "Zoom Controls",
+    content: "Zoom in/out of the preview using these controls or Ctrl+/Ctrl-",
+    target: ".zoom-controls",
+    position: "top"
+  },
+  {
+    title: "Autocomplete",
+    content: "Press Ctrl+Space to see suggestions for functions, fonts, colors, and more!",
+    target: null,
+    position: "center"
+  },
+  {
+    title: "You're All Set! 🎉",
+    content: "Start writing your document! Click Help (?) anytime for more guidance. Happy writing!",
+    target: null,
+    position: "center"
+  }
+];
+
+let currentTutorialStep = 0;
+let tutorialOverlay = null;
+
+function startOnboardingTutorial() {
+  currentTutorialStep = 0;
+  createTutorialOverlay();
+  showTutorialStep(0);
+}
+
+function createTutorialOverlay() {
+  // Remove existing overlay if any
+  if (tutorialOverlay) {
+    tutorialOverlay.remove();
+  }
+  
+  tutorialOverlay = document.createElement('div');
+  tutorialOverlay.className = 'tutorial-overlay';
+  tutorialOverlay.innerHTML = `
+    <div class="tutorial-backdrop"></div>
+    <div class="tutorial-highlight"></div>
+    <div class="tutorial-tooltip">
+      <div class="tutorial-progress">
+        <span class="tutorial-step-indicator"></span>
+      </div>
+      <h3 class="tutorial-title"></h3>
+      <p class="tutorial-content"></p>
+      <div class="tutorial-actions">
+        <button class="tutorial-btn tutorial-skip">Skip Tour</button>
+        <div class="tutorial-nav">
+          <button class="tutorial-btn tutorial-prev">← Back</button>
+          <button class="tutorial-btn tutorial-next primary">Next →</button>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(tutorialOverlay);
+  
+  // Event listeners
+  tutorialOverlay.querySelector('.tutorial-skip').addEventListener('click', endTutorial);
+  tutorialOverlay.querySelector('.tutorial-prev').addEventListener('click', () => navigateTutorial(-1));
+  tutorialOverlay.querySelector('.tutorial-next').addEventListener('click', () => navigateTutorial(1));
+  
+  // Close on backdrop click
+  tutorialOverlay.querySelector('.tutorial-backdrop').addEventListener('click', endTutorial);
+  
+  // Keyboard navigation
+  document.addEventListener('keydown', handleTutorialKeydown);
+}
+
+function handleTutorialKeydown(e) {
+  if (!tutorialOverlay) return;
+  
+  if (e.key === 'Escape') {
+    endTutorial();
+  } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
+    navigateTutorial(1);
+  } else if (e.key === 'ArrowLeft') {
+    navigateTutorial(-1);
+  }
+}
+
+function showTutorialStep(stepIndex) {
+  if (!tutorialOverlay || stepIndex < 0 || stepIndex >= tutorialSteps.length) return;
+  
+  const step = tutorialSteps[stepIndex];
+  const tooltip = tutorialOverlay.querySelector('.tutorial-tooltip');
+  const highlight = tutorialOverlay.querySelector('.tutorial-highlight');
+  const title = tutorialOverlay.querySelector('.tutorial-title');
+  const content = tutorialOverlay.querySelector('.tutorial-content');
+  const prevBtn = tutorialOverlay.querySelector('.tutorial-prev');
+  const nextBtn = tutorialOverlay.querySelector('.tutorial-next');
+  const stepIndicator = tutorialOverlay.querySelector('.tutorial-step-indicator');
+  
+  // Update content
+  title.textContent = step.title;
+  content.textContent = step.content;
+  
+  // Update progress indicator
+  stepIndicator.textContent = `${stepIndex + 1} of ${tutorialSteps.length}`;
+  
+  // Update navigation buttons
+  prevBtn.style.visibility = stepIndex === 0 ? 'hidden' : 'visible';
+  nextBtn.textContent = stepIndex === tutorialSteps.length - 1 ? "Let's Go! 🚀" : 'Next →';
+  
+  // Position tooltip and highlight
+  if (step.target) {
+    const targetEl = document.querySelector(step.target);
+    if (targetEl) {
+      const rect = targetEl.getBoundingClientRect();
+      
+      // Show and position highlight
+      highlight.style.display = 'block';
+      highlight.style.top = `${rect.top - 4}px`;
+      highlight.style.left = `${rect.left - 4}px`;
+      highlight.style.width = `${rect.width + 8}px`;
+      highlight.style.height = `${rect.height + 8}px`;
+      
+      // Position tooltip based on position preference
+      tooltip.className = 'tutorial-tooltip';
+      tooltip.classList.add(`position-${step.position}`);
+      
+      positionTooltip(tooltip, rect, step.position);
+    } else {
+      // Target not found, center the tooltip
+      highlight.style.display = 'none';
+      tooltip.className = 'tutorial-tooltip position-center';
+      centerTooltip(tooltip);
+    }
+  } else {
+    // No target, center everything
+    highlight.style.display = 'none';
+    tooltip.className = 'tutorial-tooltip position-center';
+    centerTooltip(tooltip);
+  }
+  
+  // Add entrance animation
+  tooltip.classList.add('animate');
+  setTimeout(() => tooltip.classList.remove('animate'), 300);
+}
+
+function positionTooltip(tooltip, targetRect, position) {
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const padding = 16;
+  const arrowOffset = 12;
+  
+  let top, left;
+  
+  switch (position) {
+    case 'top':
+      top = targetRect.top - tooltipRect.height - padding - arrowOffset;
+      left = targetRect.left + (targetRect.width - tooltipRect.width) / 2;
+      break;
+    case 'bottom':
+      top = targetRect.bottom + padding + arrowOffset;
+      left = targetRect.left + (targetRect.width - tooltipRect.width) / 2;
+      break;
+    case 'left':
+      top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
+      left = targetRect.left - tooltipRect.width - padding - arrowOffset;
+      break;
+    case 'right':
+      top = targetRect.top + (targetRect.height - tooltipRect.height) / 2;
+      left = targetRect.right + padding + arrowOffset;
+      break;
+    default:
+      centerTooltip(tooltip);
+      return;
+  }
+  
+  // Keep tooltip within viewport
+  const viewportPadding = 20;
+  top = Math.max(viewportPadding, Math.min(top, window.innerHeight - tooltipRect.height - viewportPadding));
+  left = Math.max(viewportPadding, Math.min(left, window.innerWidth - tooltipRect.width - viewportPadding));
+  
+  tooltip.style.top = `${top}px`;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.transform = 'none';
+}
+
+function centerTooltip(tooltip) {
+  tooltip.style.top = '50%';
+  tooltip.style.left = '50%';
+  tooltip.style.transform = 'translate(-50%, -50%)';
+}
+
+function navigateTutorial(direction) {
+  const newStep = currentTutorialStep + direction;
+  
+  if (newStep >= tutorialSteps.length) {
+    endTutorial();
+    return;
+  }
+  
+  if (newStep >= 0 && newStep < tutorialSteps.length) {
+    currentTutorialStep = newStep;
+    showTutorialStep(currentTutorialStep);
+  }
+}
+
+function endTutorial() {
+  if (tutorialOverlay) {
+    tutorialOverlay.classList.add('fade-out');
+    setTimeout(() => {
+      tutorialOverlay.remove();
+      tutorialOverlay = null;
+    }, 300);
+  }
+  
+  document.removeEventListener('keydown', handleTutorialKeydown);
+  localStorage.setItem('tutorialCompleted', 'true');
+  
+  showToast("Tutorial completed! Click Help (?) anytime for more info.");
+}
+
+// Function to restart tutorial (can be called from settings or help)
+function restartTutorial() {
+  localStorage.removeItem('tutorialCompleted');
+  startOnboardingTutorial();
 }
 
 // =====================
@@ -5333,6 +5632,30 @@ function addStyles() {
       padding: 2px 5px;
       font-size: 11px;
     }
+    
+    .restart-tutorial-section {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+    }
+    
+    .restart-tutorial-btn {
+      width: 100%;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(168, 85, 247, 0.15));
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    
+    .restart-tutorial-btn:hover {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
+      transform: translateY(-1px);
+    }
 
     .help-links svg {
       width: 14px;
@@ -5382,6 +5705,232 @@ function addStyles() {
     .toast.show {
       transform: translateX(-50%) translateY(0);
       opacity: 1;
+    }
+
+    /* Onboarding Tutorial */
+    .tutorial-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 10000;
+      pointer-events: none;
+    }
+    
+    .tutorial-overlay.fade-out {
+      animation: tutorialFadeOut 0.3s ease forwards;
+    }
+    
+    @keyframes tutorialFadeOut {
+      to {
+        opacity: 0;
+      }
+    }
+    
+    .tutorial-backdrop {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      pointer-events: auto;
+    }
+    
+    .tutorial-highlight {
+      position: fixed;
+      border-radius: 8px;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+      z-index: 10001;
+      pointer-events: none;
+      transition: all 0.3s ease;
+      border: 2px solid var(--accent);
+      background: transparent;
+    }
+    
+    .tutorial-tooltip {
+      position: fixed;
+      background: linear-gradient(145deg, var(--bg-secondary), var(--bg-tertiary));
+      border: 1px solid var(--accent);
+      border-radius: 16px;
+      padding: 24px;
+      max-width: 400px;
+      min-width: 320px;
+      z-index: 10002;
+      pointer-events: auto;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.2);
+    }
+    
+    .tutorial-tooltip.animate {
+      animation: tooltipPop 0.3s ease;
+    }
+    
+    @keyframes tooltipPop {
+      0% {
+        opacity: 0;
+        transform: scale(0.9) translate(-50%, -50%);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translate(-50%, -50%);
+      }
+    }
+    
+    .tutorial-tooltip.position-center {
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
+    
+    .tutorial-tooltip.position-center.animate {
+      animation: tooltipPopCenter 0.3s ease;
+    }
+    
+    @keyframes tooltipPopCenter {
+      0% {
+        opacity: 0;
+        transform: scale(0.9) translate(-50%, -50%);
+      }
+      100% {
+        opacity: 1;
+        transform: translate(-50%, -50%);
+      }
+    }
+    
+    /* Tooltip arrows */
+    .tutorial-tooltip.position-top::after,
+    .tutorial-tooltip.position-bottom::after,
+    .tutorial-tooltip.position-left::after,
+    .tutorial-tooltip.position-right::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      background: var(--bg-secondary);
+      border: 1px solid var(--accent);
+      transform: rotate(45deg);
+    }
+    
+    .tutorial-tooltip.position-bottom::after {
+      top: -9px;
+      left: 50%;
+      margin-left: -8px;
+      border-right: none;
+      border-bottom: none;
+    }
+    
+    .tutorial-tooltip.position-top::after {
+      bottom: -9px;
+      left: 50%;
+      margin-left: -8px;
+      border-left: none;
+      border-top: none;
+    }
+    
+    .tutorial-tooltip.position-right::after {
+      left: -9px;
+      top: 50%;
+      margin-top: -8px;
+      border-right: none;
+      border-top: none;
+    }
+    
+    .tutorial-tooltip.position-left::after {
+      right: -9px;
+      top: 50%;
+      margin-top: -8px;
+      border-left: none;
+      border-bottom: none;
+    }
+    
+    .tutorial-progress {
+      margin-bottom: 12px;
+    }
+    
+    .tutorial-step-indicator {
+      font-size: 12px;
+      color: var(--accent);
+      font-weight: 500;
+      background: rgba(99, 102, 241, 0.15);
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    
+    .tutorial-title {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 12px 0;
+      color: var(--text-primary);
+      line-height: 1.3;
+    }
+    
+    .tutorial-content {
+      font-size: 14px;
+      color: var(--text-secondary);
+      margin: 0 0 20px 0;
+      line-height: 1.6;
+    }
+    
+    .tutorial-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+    
+    .tutorial-nav {
+      display: flex;
+      gap: 8px;
+    }
+    
+    .tutorial-btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: none;
+    }
+    
+    .tutorial-btn.tutorial-skip {
+      background: transparent;
+      color: var(--text-muted);
+      padding: 10px 12px;
+    }
+    
+    .tutorial-btn.tutorial-skip:hover {
+      color: var(--text-secondary);
+      background: var(--bg-hover);
+    }
+    
+    .tutorial-btn.tutorial-prev {
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+    }
+    
+    .tutorial-btn.tutorial-prev:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    
+    .tutorial-btn.tutorial-next {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+    
+    .tutorial-btn.tutorial-next.primary {
+      background: linear-gradient(135deg, var(--accent), #8b5cf6);
+      color: white;
+      border: none;
+    }
+    
+    .tutorial-btn.tutorial-next.primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
     }
 
     /* Scrollbar */
