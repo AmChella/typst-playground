@@ -43,10 +43,11 @@ async function createFreshCompiler() {
   });
 
   // Build initialization options
+  // Note: WASM must match the @myriaddreamin/typst.ts package version
+  // Using CDN version that matches the npm package
   const initOptions = {
     getModule: () =>
       "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler/pkg/typst_ts_web_compiler_bg.wasm",
-    // "https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@0.7.0-rc1/pkg/typst_ts_web_compiler_bg.wasm",
     beforeBuild: [],
   };
 
