@@ -48,6 +48,7 @@ let currentPage = 1;
 let totalPages = 0;
 let compileStatus = "ready"; // ready, compiling, error
 let errorMessage = "";
+let errorDecorations = []; // Monaco editor decorations for error highlighting
 let currentFileName = "main.typ";
 let currentDocumentId = null;
 let documents = new Map(); // Map of documentId -> {id, name, content, updatedAt}
@@ -135,6 +136,7 @@ async function init() {
     smoothScrolling: true,
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
     fontLigatures: true,
+    glyphMargin: true,
   });
 
   // Setup event listeners
@@ -586,10 +588,12 @@ function setCompileStatus(status, error = "", diagnostics = []) {
   const errorWindow = document.getElementById("error-window");
   if (status === "error" && (error || diagnostics.length > 0)) {
     showErrorWindow(error, diagnostics);
+    highlightErrorLines(diagnostics);
   } else {
     if (errorWindow) {
       errorWindow.classList.remove("visible");
     }
+    clearErrorHighlights();
   }
 }
 
@@ -612,6 +616,10 @@ function showErrorWindow(summary, diagnostics) {
     headerText.textContent = parts.length > 0 ? parts.join(', ') : 'Compilation Error';
   }
   
+  // Get source code for code snippets
+  const sourceCode = editor ? editor.getValue() : '';
+  const sourceLines = sourceCode.split('\n');
+  
   // Render diagnostics list
   const errorList = errorWindow.querySelector(".error-list");
   if (errorList) {
@@ -620,6 +628,9 @@ function showErrorWindow(summary, diagnostics) {
       const severityClass = d.severity || "error";
       const location = formatErrorLocation(d);
       const hasLocation = d.line !== null;
+      
+      // Generate code snippet if we have line info
+      const codeSnippet = generateCodeSnippet(d, sourceLines);
       
       return `
         <div class="error-item ${severityClass} ${hasLocation ? 'clickable' : ''}" 
@@ -631,6 +642,7 @@ function showErrorWindow(summary, diagnostics) {
             <span class="error-message">${escapeHtml(d.message)}</span>
           </div>
           ${location ? `<div class="error-location">${escapeHtml(location)}</div>` : ''}
+          ${codeSnippet}
           ${d.hint ? `<div class="error-hint"><span class="hint-label">Hint:</span> ${escapeHtml(d.hint)}</div>` : ''}
         </div>
       `;
@@ -651,6 +663,65 @@ function showErrorWindow(summary, diagnostics) {
   }
   
   errorWindow.classList.add("visible");
+}
+
+// Generate a code snippet for an error diagnostic
+function generateCodeSnippet(diagnostic, sourceLines) {
+  if (diagnostic.line === null || diagnostic.line === undefined) return '';
+  
+  const errorLine = diagnostic.line;
+  const startCol = diagnostic.column || 1;
+  const endCol = diagnostic.endColumn || (startCol + 1);
+  const endLine = diagnostic.endLine || errorLine;
+  
+  // Show context: 1 line before, error lines, 1 line after
+  const contextBefore = 1;
+  const contextAfter = 1;
+  const startLineIdx = Math.max(0, errorLine - 1 - contextBefore);
+  const endLineIdx = Math.min(sourceLines.length - 1, endLine - 1 + contextAfter);
+  
+  let snippetHtml = '<div class="error-code-snippet">';
+  
+  for (let i = startLineIdx; i <= endLineIdx; i++) {
+    const lineNum = i + 1;
+    const lineContent = sourceLines[i] || '';
+    const isErrorLine = lineNum >= errorLine && lineNum <= endLine;
+    const lineClass = isErrorLine ? 'error-line' : '';
+    
+    // Escape HTML in line content
+    let displayContent = escapeHtml(lineContent) || ' '; // Use space for empty lines
+    
+    // Highlight the error portion on error lines
+    if (isErrorLine && lineNum === errorLine && startCol > 0) {
+      const before = escapeHtml(lineContent.substring(0, startCol - 1));
+      const errorEnd = lineNum === endLine ? endCol : lineContent.length + 1;
+      const errorPart = escapeHtml(lineContent.substring(startCol - 1, errorEnd - 1)) || ' ';
+      const after = escapeHtml(lineContent.substring(errorEnd - 1));
+      displayContent = `${before}<span class="error-highlight">${errorPart}</span>${after}`;
+    }
+    
+    snippetHtml += `
+      <div class="snippet-line ${lineClass}">
+        <span class="snippet-line-num">${lineNum}</span>
+        <span class="snippet-line-content">${displayContent}</span>
+      </div>
+    `;
+  }
+  
+  // Add error indicator arrow
+  if (startCol > 0) {
+    const padding = ' '.repeat(startCol - 1);
+    const underline = '^'.repeat(Math.max(1, endCol - startCol));
+    snippetHtml += `
+      <div class="snippet-indicator">
+        <span class="snippet-line-num"></span>
+        <span class="snippet-indicator-arrow">${padding}${underline}</span>
+      </div>
+    `;
+  }
+  
+  snippetHtml += '</div>';
+  return snippetHtml;
 }
 
 function formatErrorLocation(diagnostic) {
@@ -676,6 +747,87 @@ function toggleErrorWindow() {
   if (errorWindow) {
     errorWindow.classList.toggle("visible");
   }
+}
+
+// =====================
+// ERROR LINE HIGHLIGHTING
+// =====================
+function highlightErrorLines(diagnostics) {
+  console.log("[Main] highlightErrorLines called with:", JSON.stringify(diagnostics, null, 2));
+  
+  if (!editor) return;
+  
+  const model = editor.getModel();
+  if (!model) return;
+  
+  // Clear previous decorations
+  clearErrorHighlights();
+  
+  // Create Monaco markers (squiggly underlines)
+  const markers = diagnostics
+    .filter(d => d.line !== null && d.line !== undefined)
+    .map(d => {
+      const startLine = d.line;
+      const startCol = d.column || 1;
+      // If we have end position, use it; otherwise mark to end of line
+      const endLine = d.endLine || startLine;
+      const endCol = d.endColumn || model.getLineMaxColumn(endLine);
+      
+      const marker = {
+        severity: d.severity === "warning" 
+          ? monaco.MarkerSeverity.Warning 
+          : monaco.MarkerSeverity.Error,
+        startLineNumber: startLine,
+        startColumn: startCol,
+        endLineNumber: endLine,
+        endColumn: endCol,
+        message: d.message || "Error",
+        source: "typst"
+      };
+      
+      console.log("[Main] Created marker:", marker);
+      return marker;
+    });
+  
+  console.log("[Main] Setting Monaco markers:", markers.length, "markers");
+  
+  // Set markers (shows squiggly underlines)
+  monaco.editor.setModelMarkers(model, "typst", markers);
+  
+  // Also add line decorations for background highlighting
+  const newDecorations = diagnostics
+    .filter(d => d.line !== null && d.line !== undefined)
+    .map(d => {
+      const isWarning = d.severity === "warning";
+      return {
+        range: new monaco.Range(d.line, 1, d.line, 1),
+        options: {
+          isWholeLine: true,
+          className: isWarning ? 'editor-line-warning' : 'editor-line-error',
+          glyphMarginClassName: isWarning ? 'editor-glyph-warning' : 'editor-glyph-error',
+          overviewRuler: {
+            color: isWarning ? '#f59e0b' : '#ef4444',
+            position: monaco.editor.OverviewRulerLane.Right
+          }
+        }
+      };
+    });
+  
+  // Apply line decorations
+  errorDecorations = editor.deltaDecorations([], newDecorations);
+}
+
+function clearErrorHighlights() {
+  if (!editor) return;
+  
+  // Clear Monaco markers
+  const model = editor.getModel();
+  if (model) {
+    monaco.editor.setModelMarkers(model, "typst", []);
+  }
+  
+  // Clear line decorations
+  errorDecorations = editor.deltaDecorations(errorDecorations, []);
 }
 
 // =====================
@@ -1713,39 +1865,46 @@ function setupUI() {
       <!-- Header -->
       <header class="header">
         <div class="header-left">
-          <button class="icon-btn" id="toggle-sidebar" title="Toggle Sidebar (Ctrl+B)">
+          <button class="icon-btn sidebar-toggle" id="toggle-sidebar" title="Toggle Sidebar (Ctrl+B)">
             ${icons.sidebar}
           </button>
           <div class="logo">
-            <span class="logo-icon">${icons.fileTypst}</span>
-            <span class="logo-text">Typst</span>
-          </div>
-          <div class="header-divider"></div>
-          <div class="document-name" id="doc-name">
-            <span>${currentFileName}</span>
+            <div class="logo-icon-wrapper">
+              <span class="logo-icon">${icons.fileTypst}</span>
+            </div>
+            <span class="logo-text">Typst<span class="logo-suffix">Playground</span></span>
           </div>
         </div>
         <div class="header-center">
-          <button class="header-btn" id="btn-templates" title="Templates">
+          <div class="document-title-wrapper" id="doc-name">
+            <span class="document-icon">${icons.fileTypst}</span>
+            <span class="document-name-text">${currentFileName}</span>
+            <span class="document-status" id="doc-status" title="All changes saved">
+              ${icons.check}
+            </span>
+          </div>
+        </div>
+        <div class="header-right">
+          <button class="header-action-btn" id="btn-templates" title="Browse Templates">
             ${icons.template}
             <span>Templates</span>
           </button>
-        </div>
-        <div class="header-right">
+          <div class="header-divider"></div>
           <div class="header-btn-group">
-            <button class="icon-btn" id="btn-share" title="Share">
+            <button class="icon-btn" id="btn-share" title="Share Document">
               ${icons.share}
             </button>
-            <button class="icon-btn" id="btn-export" title="Export PDF">
+            <button class="icon-btn primary" id="btn-export" title="Download PDF">
               ${icons.download}
             </button>
-            <button class="icon-btn" id="btn-settings" title="Settings">
-              ${icons.settings}
-            </button>
-            <button class="icon-btn" id="btn-help" title="Help (F1)">
-              ${icons.help}
-            </button>
           </div>
+          <div class="header-divider"></div>
+          <button class="icon-btn" id="btn-settings" title="Settings">
+            ${icons.settings}
+          </button>
+          <button class="icon-btn" id="btn-help" title="Help & Keyboard Shortcuts (F1)">
+            ${icons.help}
+          </button>
         </div>
       </header>
 
@@ -1754,39 +1913,79 @@ function setupUI() {
       <div class="main-content">
         <!-- Sidebar -->
         <aside class="sidebar" id="sidebar">
-          <div class="sidebar-section">
-            <div class="sidebar-header">
-              <span>Files</span>
-              <div class="sidebar-actions">
-                <button class="icon-btn small" id="btn-new-file" title="New File">
-                  ${icons.filePlus}
-                </button>
-                <button class="icon-btn small" id="btn-upload" title="Upload File">
-                  ${icons.upload}
-                </button>
+          <div class="sidebar-content">
+            <!-- Documents Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-header">
+                <div class="section-title">
+                  <span class="section-icon">${icons.folder}</span>
+                  <span>Documents</span>
+                </div>
+                <div class="sidebar-actions">
+                  <button class="icon-btn tiny" id="btn-new-file" title="New Document">
+                    ${icons.filePlus}
+                  </button>
+                </div>
+              </div>
+              <div class="file-tree" id="file-tree">
+                <!-- Rendered dynamically by renderFileTree() -->
               </div>
             </div>
-            <div class="file-tree" id="file-tree">
-              <!-- Rendered dynamically by renderFileTree() -->
-            </div>
-          </div>
-          <div class="sidebar-section">
-            <div class="sidebar-header collapsible" id="uploads-header">
-              <span>${icons.chevronDown} Uploads</span>
-            </div>
-            <div class="uploads-list" id="uploads-list"></div>
-          </div>
-          <div class="sidebar-section">
-            <div class="sidebar-header">
-              <span>Fonts</span>
-              <div class="sidebar-actions">
-                <button class="icon-btn small" id="btn-upload-font" title="Upload Font">
-                  ${icons.upload}
-                </button>
+            
+            <!-- Assets Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-header collapsible" id="uploads-header">
+                <div class="section-title">
+                  <span class="section-chevron">${icons.chevronDown}</span>
+                  <span class="section-icon">${icons.image}</span>
+                  <span>Assets</span>
+                </div>
+                <div class="sidebar-actions">
+                  <button class="icon-btn tiny" id="btn-upload" title="Upload Image or File">
+                    ${icons.upload}
+                  </button>
+                </div>
+              </div>
+              <div class="uploads-list" id="uploads-list">
+                <div class="empty-state" id="uploads-empty">
+                  <span>Drop files here or click upload</span>
+                </div>
               </div>
             </div>
-            <div class="fonts-list" id="fonts-list">
-              <!-- Rendered dynamically -->
+            
+            <!-- Fonts Section -->
+            <div class="sidebar-section">
+              <div class="sidebar-section-header collapsible" id="fonts-header">
+                <div class="section-title">
+                  <span class="section-chevron">${icons.chevronDown}</span>
+                  <span class="section-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
+                    </svg>
+                  </span>
+                  <span>Fonts</span>
+                </div>
+                <div class="sidebar-actions">
+                  <button class="icon-btn tiny" id="btn-upload-font" title="Upload Custom Font">
+                    ${icons.upload}
+                  </button>
+                </div>
+              </div>
+              <div class="fonts-list" id="fonts-list">
+                <div class="empty-state" id="fonts-empty">
+                  <span>Upload .ttf or .otf fonts</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Sidebar Footer -->
+          <div class="sidebar-footer">
+            <div class="sidebar-footer-info">
+              <span class="storage-indicator">
+                <span class="storage-dot"></span>
+                Local Storage
+              </span>
             </div>
           </div>
         </aside>
@@ -1887,6 +2086,27 @@ function setupUI() {
               <div class="visual-editor" id="visual-editor" contenteditable="true"></div>
             </div>
           </div>
+          
+          <!-- Error Window (Console Panel) -->
+          <div class="error-window" id="error-window">
+            <div class="error-window-header">
+              <div class="error-window-header-left">
+                <span class="error-window-icon">${icons.error}</span>
+                <span class="error-window-title">Compilation Error</span>
+              </div>
+              <div class="error-window-header-right">
+                <button class="icon-btn small" id="btn-toggle-error" title="Minimize">
+                  ${icons.chevronDown}
+                </button>
+                <button class="icon-btn small" id="btn-close-error" title="Close">
+                  ${icons.close}
+                </button>
+              </div>
+            </div>
+            <div class="error-window-body">
+              <div class="error-list"></div>
+            </div>
+          </div>
         </div>
 
         <!-- Resizer -->
@@ -1940,27 +2160,6 @@ function setupUI() {
           </div>
           <div class="preview-content" id="preview-content">
             <div class="pdf-container" id="pdf-pages"></div>
-          </div>
-          
-          <!-- Error Window (Separate Panel) -->
-          <div class="error-window" id="error-window">
-            <div class="error-window-header">
-              <div class="error-window-header-left">
-                <span class="error-window-icon">${icons.error}</span>
-                <span class="error-window-title">Compilation Error</span>
-              </div>
-              <div class="error-window-header-right">
-                <button class="icon-btn small" id="btn-toggle-error" title="Minimize">
-                  ${icons.chevronDown}
-                </button>
-                <button class="icon-btn small" id="btn-close-error" title="Close">
-                  ${icons.close}
-                </button>
-              </div>
-            </div>
-            <div class="error-window-body">
-              <div class="error-list"></div>
-            </div>
           </div>
         </div>
       </div>
@@ -3731,6 +3930,15 @@ function addStyles() {
       --warning: #f59e0b;
       --error: #ef4444;
     }
+    
+    /* Light theme error highlighting */
+    [data-theme="light"] .editor-line-error {
+      background: rgba(220, 38, 38, 0.12) !important;
+    }
+    
+    [data-theme="light"] .editor-line-warning {
+      background: rgba(217, 119, 6, 0.12) !important;
+    }
 
     /* Reset */
     * {
@@ -3762,27 +3970,33 @@ function addStyles() {
     /* Header */
     .header {
       height: var(--header-height);
-      background: var(--bg-secondary);
+      background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
       border-bottom: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 12px;
+      padding: 0 16px;
       flex-shrink: 0;
+      gap: 16px;
     }
 
     .header-left, .header-center, .header-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
     }
 
     .header-left {
+      flex: 0 0 auto;
+    }
+
+    .header-center {
       flex: 1;
+      justify-content: center;
     }
 
     .header-right {
-      flex: 1;
+      flex: 0 0 auto;
       justify-content: flex-end;
     }
 
@@ -3791,33 +4005,56 @@ function addStyles() {
       align-items: center;
       gap: 2px;
       background: var(--bg-tertiary);
-      border-radius: 8px;
+      border-radius: 10px;
       padding: 4px;
+      border: 1px solid var(--border-color);
     }
 
     .header-btn-group .icon-btn {
-      border-radius: 6px;
+      border-radius: 8px;
+    }
+
+    .header-btn-group .icon-btn.primary {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    .header-btn-group .icon-btn.primary:hover {
+      background: var(--accent-hover);
     }
 
     .header-divider {
       width: 1px;
       height: 24px;
       background: var(--border-color);
-      margin: 0 8px;
+      margin: 0 4px;
     }
 
     .logo {
       display: flex;
       align-items: center;
-      gap: 8px;
-      color: var(--accent);
-      font-weight: 600;
+      gap: 10px;
+      color: var(--text-primary);
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .logo-icon-wrapper {
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+      border-radius: 8px;
+      padding: 5px;
     }
 
     .logo-icon {
-      width: 20px;
-      height: 20px;
+      width: 100%;
+      height: 100%;
       display: flex;
+      color: white;
     }
 
     .logo-icon svg {
@@ -3825,9 +4062,94 @@ function addStyles() {
       height: 100%;
     }
 
-    .document-name {
-      color: var(--text-secondary);
+    .logo-text {
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+
+    .logo-suffix {
+      color: var(--text-muted);
+      font-weight: 400;
       font-size: 13px;
+    }
+
+    .sidebar-toggle {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+    }
+
+    /* Document Title */
+    .document-title-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      max-width: 300px;
+      cursor: default;
+    }
+
+    .document-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+
+    .document-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .document-name-text {
+      color: var(--text-primary);
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .document-status {
+      width: 16px;
+      height: 16px;
+      color: var(--success);
+      flex-shrink: 0;
+    }
+
+    .document-status svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Header Action Button */
+    .header-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      border-radius: 10px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+
+    .header-action-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+      border-color: var(--accent);
+    }
+
+    .header-action-btn svg {
+      width: 16px;
+      height: 16px;
     }
 
     /* Buttons */
@@ -3967,10 +4289,146 @@ function addStyles() {
       flex-shrink: 0;
     }
 
-    .sidebar-section {
-      border-bottom: 1px solid var(--border-color);
+    .sidebar-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
     }
 
+    .sidebar-section {
+      margin-bottom: 4px;
+    }
+
+    .sidebar-section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      margin: 0 8px;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+
+    .sidebar-section-header:hover {
+      background: var(--bg-hover);
+    }
+
+    .sidebar-section-header.collapsible {
+      cursor: pointer;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+    }
+
+    .section-icon {
+      width: 16px;
+      height: 16px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .section-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .section-chevron {
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+      transition: transform 0.2s;
+    }
+
+    .section-chevron svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .sidebar-section-header.collapsed .section-chevron {
+      transform: rotate(-90deg);
+    }
+
+    .sidebar-actions {
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .sidebar-section-header:hover .sidebar-actions {
+      opacity: 1;
+    }
+
+    .icon-btn.tiny {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+    }
+
+    .icon-btn.tiny svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .file-tree, .uploads-list, .fonts-list {
+      padding: 4px 12px;
+    }
+    
+    .uploads-list, .fonts-list {
+      min-height: 40px;
+      transition: all 0.2s;
+    }
+
+    .empty-state {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+      text-align: center;
+      border: 1px dashed var(--border-color);
+      border-radius: 8px;
+      margin: 4px 0;
+    }
+
+    /* Sidebar Footer */
+    .sidebar-footer {
+      padding: 12px;
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+    }
+
+    .sidebar-footer-info {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .storage-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .storage-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--success);
+      border-radius: 50%;
+    }
+
+    /* Legacy support */
     .sidebar-header {
       display: flex;
       align-items: center;
@@ -3996,15 +4454,6 @@ function addStyles() {
       height: 12px;
       margin-right: 4px;
     }
-
-    .sidebar-actions {
-      display: flex;
-      gap: 4px;
-    }
-
-    .file-tree, .uploads-list, .fonts-list {
-      padding: 4px 8px;
-    }
     
     .uploads-list {
       min-height: 50px;
@@ -4020,12 +4469,13 @@ function addStyles() {
     .file-item, .font-item {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 8px;
-      border-radius: 4px;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
       cursor: pointer;
       color: var(--text-secondary);
       transition: all 0.15s;
+      margin-bottom: 2px;
     }
 
     .file-item:hover {
@@ -4036,6 +4486,7 @@ function addStyles() {
     .file-item.active {
       background: var(--accent-muted);
       color: var(--accent);
+      border-left: 3px solid var(--accent);
     }
 
     .file-icon {
@@ -4043,6 +4494,7 @@ function addStyles() {
       height: 16px;
       display: flex;
       flex-shrink: 0;
+      color: inherit;
     }
 
     .file-icon svg {
@@ -4056,6 +4508,7 @@ function addStyles() {
       text-overflow: ellipsis;
       white-space: nowrap;
       font-size: 13px;
+      font-weight: 500;
     }
 
     .file-item .delete-doc-btn {
@@ -4589,22 +5042,23 @@ function addStyles() {
     .recompile-btn {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
+      gap: 8px;
+      padding: 8px 14px;
       background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
       color: white;
       border: none;
-      border-radius: 4px 0 0 4px;
+      border-radius: 8px 0 0 8px;
       cursor: pointer;
       font-size: 12px;
       font-weight: 600;
       transition: all 0.15s ease;
-      box-shadow: 0 1px 3px rgba(34, 197, 94, 0.3);
+      box-shadow: 0 2px 8px rgba(34, 197, 94, 0.25);
     }
 
     .recompile-btn:hover {
       background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-      box-shadow: 0 2px 6px rgba(34, 197, 94, 0.4);
+      box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
+      transform: translateY(-1px);
     }
 
     .recompile-btn svg {
@@ -4616,12 +5070,12 @@ function addStyles() {
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 6px 6px;
+      padding: 8px 8px;
       background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
       color: white;
       border: none;
       border-left: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 0 4px 4px 0;
+      border-radius: 0 8px 8px 0;
       cursor: pointer;
       transition: all 0.15s ease;
     }
@@ -4695,9 +5149,9 @@ function addStyles() {
       display: flex;
       align-items: center;
       position: relative;
-      background: #1a1a2e;
-      border: 1px solid #3a3a5a;
-      border-radius: 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
       padding: 3px;
       gap: 0;
     }
@@ -4708,10 +5162,10 @@ function addStyles() {
       left: 3px;
       width: calc(50% - 3px);
       height: calc(100% - 6px);
-      background: linear-gradient(135deg, #138a36 0%, #0d6e2a 100%);
-      border-radius: 6px;
+      background: linear-gradient(135deg, var(--accent) 0%, #6366f1 100%);
+      border-radius: 8px;
       transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 0 2px 8px rgba(19, 138, 54, 0.3);
+      box-shadow: 0 2px 8px rgba(34, 211, 238, 0.25);
       z-index: 0;
     }
 
@@ -4727,10 +5181,10 @@ function addStyles() {
       padding: 8px 16px;
       border: none;
       background: transparent;
-      color: #888;
-      border-radius: 6px;
+      color: var(--text-muted);
+      border-radius: 8px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       transition: color 0.2s ease;
       position: relative;
@@ -4740,13 +5194,13 @@ function addStyles() {
     }
 
     .mode-toggle-btn svg {
-      width: 16px;
-      height: 16px;
+      width: 14px;
+      height: 14px;
       flex-shrink: 0;
     }
 
     .mode-toggle-btn:hover {
-      color: #bbb;
+      color: var(--text-secondary);
     }
 
     .mode-toggle-btn.active {
@@ -4765,15 +5219,17 @@ function addStyles() {
       justify-content: space-between;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
-      padding: 0 8px;
-      height: 36px;
+      padding: 4px 12px;
+      height: 42px;
       flex-shrink: 0;
+      gap: 12px;
     }
 
     .editor-tabs-left {
       display: flex;
       align-items: center;
       gap: 4px;
+      flex: 1;
     }
 
     .editor-tabs-right {
@@ -4785,32 +5241,34 @@ function addStyles() {
     .tab {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      background: transparent;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--bg-tertiary);
       color: var(--text-secondary);
-      border-radius: 4px 4px 0 0;
+      border-radius: 8px;
       cursor: pointer;
       font-size: 12px;
-      border: 1px solid transparent;
-      border-bottom: none;
-      margin-bottom: -1px;
+      font-weight: 500;
+      border: 1px solid var(--border-color);
+      transition: all 0.15s;
     }
 
     .tab:hover {
       background: var(--bg-hover);
+      color: var(--text-primary);
     }
 
     .tab.active {
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      border-color: var(--border-color);
+      background: var(--accent-muted);
+      color: var(--accent);
+      border-color: var(--accent);
     }
 
     .tab-icon {
       width: 14px;
       height: 14px;
       display: flex;
+      color: inherit;
     }
 
     .tab-icon svg {
@@ -5142,8 +5600,8 @@ function addStyles() {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 12px;
-      height: 36px;
+      padding: 6px 12px;
+      height: 42px;
       background: var(--bg-secondary);
       border-bottom: 1px solid var(--border-color);
       flex-shrink: 0;
@@ -5155,6 +5613,13 @@ function addStyles() {
       gap: 8px;
     }
 
+    .preview-toolbar-center {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 4px;
+    }
+
     .preview-title {
       font-size: 12px;
       color: var(--text-secondary);
@@ -5164,7 +5629,7 @@ function addStyles() {
     .zoom-level, .zoom-level-btn {
       font-size: 12px;
       color: var(--text-secondary);
-      min-width: 45px;
+      min-width: 50px;
       text-align: center;
     }
 
@@ -5172,8 +5637,8 @@ function addStyles() {
       background: transparent;
       border: none;
       cursor: pointer;
-      padding: 4px 8px;
-      border-radius: 4px;
+      padding: 4px 10px;
+      border-radius: 6px;
       transition: all 0.15s;
     }
 
@@ -5254,12 +5719,12 @@ function addStyles() {
     /* Status Bar */
     .status-bar {
       height: var(--status-height);
-      background: var(--bg-secondary);
+      background: linear-gradient(180deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
       border-top: 1px solid var(--border-color);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 12px;
+      padding: 0 16px;
       flex-shrink: 0;
     }
 
@@ -5277,11 +5742,21 @@ function addStyles() {
       gap: 6px;
     }
 
+    .status-item:hover {
+      color: var(--text-secondary);
+    }
+
     .status-indicator {
       width: 8px;
       height: 8px;
       border-radius: 50%;
       background: var(--text-muted);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
     }
 
     .status-indicator.ready {
@@ -5961,19 +6436,43 @@ function addStyles() {
       background: var(--bg-tertiary) !important;
     }
 
-    /* Error Window - Separate Panel at bottom of preview */
+    /* Error Line Highlighting */
+    .editor-line-error {
+      background: rgba(239, 68, 68, 0.15) !important;
+      border-left: 3px solid #ef4444 !important;
+    }
+    
+    .editor-line-warning {
+      background: rgba(245, 158, 11, 0.15) !important;
+      border-left: 3px solid #f59e0b !important;
+    }
+    
+    .editor-glyph-error {
+      background: #ef4444;
+      border-radius: 50%;
+      margin-left: 5px;
+      width: 8px !important;
+      height: 8px !important;
+    }
+    
+    .editor-glyph-warning {
+      background: #f59e0b;
+      border-radius: 50%;
+      margin-left: 5px;
+      width: 8px !important;
+      height: 8px !important;
+    }
+
+    /* Error Window - Panel at bottom of editor */
     .error-window {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      max-height: 50%;
+      position: relative;
+      max-height: 200px;
       background: var(--bg-secondary);
       border-top: 2px solid var(--error);
       display: none;
       flex-direction: column;
-      z-index: 100;
-      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.4);
+      flex-shrink: 0;
+      z-index: 10;
     }
 
     .error-window.visible {
@@ -5985,7 +6484,7 @@ function addStyles() {
     }
 
     .error-window.minimized {
-      max-height: auto;
+      max-height: none;
     }
 
     .error-window-header {
@@ -6035,7 +6534,7 @@ function addStyles() {
       flex: 1;
       overflow-y: auto;
       padding: 8px 0;
-      max-height: 300px;
+      max-height: 150px;
     }
 
     .error-list {
@@ -6138,15 +6637,88 @@ function addStyles() {
       color: var(--success);
     }
 
-    /* Make preview-panel position relative for absolute error window */
-    .preview-panel {
-      position: relative;
+    /* Error Code Snippet */
+    .error-code-snippet {
+      margin-top: 10px;
+      margin-left: 26px;
+      background: var(--bg-tertiary);
+      border-radius: 6px;
+      padding: 8px 0;
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+      font-size: 12px;
+      overflow-x: auto;
+      border: 1px solid var(--border-color);
     }
 
-    /* Adjust preview content when error window is visible */
-    .error-window.visible ~ .preview-content,
-    .preview-panel:has(.error-window.visible) .preview-content {
-      padding-bottom: 200px;
+    .snippet-line {
+      display: flex;
+      line-height: 1.6;
+      padding: 0 12px;
+    }
+
+    .snippet-line.error-line {
+      background: rgba(239, 68, 68, 0.1);
+    }
+
+    .snippet-line-num {
+      min-width: 32px;
+      padding-right: 12px;
+      color: var(--text-muted);
+      text-align: right;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .snippet-line-content {
+      flex: 1;
+      white-space: pre;
+      color: var(--text-primary);
+    }
+
+    .error-highlight {
+      background: rgba(239, 68, 68, 0.3);
+      color: var(--error);
+      border-bottom: 2px wavy var(--error);
+      padding: 0 2px;
+      border-radius: 2px;
+    }
+
+    .snippet-indicator {
+      display: flex;
+      line-height: 1.2;
+      padding: 0 12px;
+    }
+
+    .snippet-indicator-arrow {
+      flex: 1;
+      white-space: pre;
+      color: var(--error);
+      font-weight: bold;
+    }
+
+    /* Light theme adjustments for code snippet */
+    [data-theme="light"] .error-code-snippet {
+      background: #f8f9fa;
+    }
+
+    [data-theme="light"] .snippet-line.error-line {
+      background: rgba(220, 38, 38, 0.08);
+    }
+
+    [data-theme="light"] .error-highlight {
+      background: rgba(220, 38, 38, 0.2);
+    }
+
+    /* Make preview-panel position relative for absolute error window */
+    /* Adjust editor content when error window is visible */
+    .editor-panel:has(.error-window.visible) .editor-content {
+      flex: 1;
+      min-height: 0;
+    }
+    
+    .editor-panel:has(.error-window.visible) .visual-editor-container {
+      flex: 1;
+      min-height: 0;
     }
   `;
   document.head.appendChild(style);

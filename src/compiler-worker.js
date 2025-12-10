@@ -163,12 +163,16 @@ async function compileDocument(source) {
 
     console.log("[Compiler Worker] Compiling...");
 
-    // Compile to PDF
+    // Compile to PDF with full diagnostics
     const result = await compiler.compile({
       mainFilePath: "/main.typ",
       format: 1, // PDF format
+      diagnostics: 'full', // Get full diagnostic objects with line/column info
     });
 
+    console.log("[Compiler Worker] Compilation result:", result);
+    console.log("[Compiler Worker] Result keys:", result ? Object.keys(result) : "null");
+    
     if (result && result.result) {
       // Create a clean copy of the PDF bytes to ensure proper transfer
       // Note: We don't use transferList here because the buffer needs to remain
@@ -181,7 +185,9 @@ async function compileDocument(source) {
       });
     } else if (result && result.diagnostics) {
       // Extract detailed error information from diagnostics
+      console.log("[Compiler Worker] Raw diagnostics:", JSON.stringify(result.diagnostics, null, 2));
       const diagnostics = parseDiagnostics(result.diagnostics);
+      console.log("[Compiler Worker] Parsed diagnostics:", JSON.stringify(diagnostics, null, 2));
       self.postMessage({
         type: "compiled",
         ok: false,
@@ -205,6 +211,7 @@ async function compileDocument(source) {
     }
   } catch (err) {
     console.error("[Compiler Worker] Compile error:", err);
+    console.log("[Compiler Worker] Error object:", JSON.stringify(err, Object.getOwnPropertyNames(err), 2));
 
     let errorMessage = err.toString();
     if (err.message) {
@@ -213,6 +220,7 @@ async function compileDocument(source) {
 
     // Try to parse error for line/column info
     const parsedError = parseErrorMessage(errorMessage);
+    console.log("[Compiler Worker] Parsed error:", JSON.stringify(parsedError, null, 2));
 
     self.postMessage({
       type: "compiled",
@@ -248,17 +256,47 @@ function parseDiagnostics(diagnostics) {
       if (typeof d === "string") {
         items.push(parseErrorMessage(d));
       } else if (typeof d === "object" && d !== null) {
-        // Handle diagnostic object format
+        // Handle DiagnosticMessage format from typst.ts
+        // DiagnosticMessage has: package, path, severity, range, message
+        // range format: "startLine:startCol-endLine:endCol" (1-indexed from typst)
+        let startLine = null, startCol = null, endLine = null, endCol = null;
+        
+        // Parse range string if present (e.g., "2:9-3:15" or "2:9-2:15")
+        if (d.range && typeof d.range === 'string') {
+          const rangeMatch = d.range.match(/^(\d+):(\d+)-(\d+):(\d+)$/);
+          if (rangeMatch) {
+            startLine = parseInt(rangeMatch[1], 10);
+            startCol = parseInt(rangeMatch[2], 10);
+            endLine = parseInt(rangeMatch[3], 10);
+            endCol = parseInt(rangeMatch[4], 10);
+          }
+        }
+        
+        // Fallback to span format if range not present
+        if (startLine === null) {
+          const rawLine = d.span?.start?.line ?? d.line ?? null;
+          const rawEndLine = d.span?.end?.line ?? null;
+          const rawCol = d.span?.start?.column ?? d.column ?? null;
+          const rawEndCol = d.span?.end?.column ?? null;
+          // Typst span uses 0-indexed, convert to 1-indexed
+          startLine = rawLine !== null ? rawLine + 1 : null;
+          startCol = rawCol !== null ? rawCol + 1 : null;
+          endLine = rawEndLine !== null ? rawEndLine + 1 : null;
+          endCol = rawEndCol !== null ? rawEndCol + 1 : null;
+        }
+        
         const item = {
           severity: d.severity || "error",
           message: d.message || JSON.stringify(d),
-          file: d.span?.file || d.file || "/main.typ",
-          line: d.span?.start?.line || d.line || null,
-          column: d.span?.start?.column || d.column || null,
-          endLine: d.span?.end?.line || null,
-          endColumn: d.span?.end?.column || null,
+          file: d.path || d.span?.file || d.file || "/main.typ",
+          line: startLine,
+          column: startCol,
+          endLine: endLine,
+          endColumn: endCol,
           hint: d.hints?.join("; ") || d.hint || null,
         };
+        
+        console.log("[Compiler Worker] Parsed diagnostic item:", JSON.stringify(item, null, 2));
         items.push(item);
       }
     }

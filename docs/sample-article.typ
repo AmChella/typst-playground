@@ -374,6 +374,118 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
   caption: [Your table caption describing the data presented.],
 ) <tbl1>
 
+// ============================================================
+// LONG TABLE - Spanning across columns with continuation markers
+// ============================================================
+
+// Long table with automatic continuation markers
+#let long-table-data = (
+  ([1], [Alpha amino acid], [Alanine], [Ala], [A], [Non-polar]),
+  ([2], [Alpha amino acid], [Arginine], [Arg], [R], [Polar, basic]),
+  ([3], [Alpha amino acid], [Asparagine], [Asn], [N], [Polar, neutral]),
+  ([4], [Alpha amino acid], [Aspartic acid], [Asp], [D], [Polar, acidic]),
+  ([5], [Alpha amino acid], [Cysteine], [Cys], [C], [Polar, neutral]),
+  ([6], [Alpha amino acid], [Glutamic acid], [Glu], [E], [Polar, acidic]),
+  ([7], [Alpha amino acid], [Glutamine], [Gln], [Q], [Polar, neutral]),
+  ([8], [Alpha amino acid], [Glycine], [Gly], [G], [Non-polar]),
+  ([9], [Alpha amino acid], [Histidine], [His], [H], [Polar, basic]),
+  ([10], [Alpha amino acid], [Isoleucine], [Ile], [I], [Non-polar]),
+  ([11], [Alpha amino acid], [Leucine], [Leu], [L], [Non-polar]),
+  ([12], [Alpha amino acid], [Lysine], [Lys], [K], [Polar, basic]),
+  ([13], [Alpha amino acid], [Methionine], [Met], [M], [Non-polar]),
+  ([14], [Alpha amino acid], [Phenylalanine], [Phe], [F], [Non-polar]),
+  ([15], [Alpha amino acid], [Proline], [Pro], [P], [Non-polar]),
+  ([16], [Alpha amino acid], [Serine], [Ser], [S], [Polar, neutral]),
+  ([17], [Alpha amino acid], [Threonine], [Thr], [T], [Polar, neutral]),
+  ([18], [Alpha amino acid], [Tryptophan], [Trp], [W], [Non-polar]),
+  ([19], [Alpha amino acid], [Tyrosine], [Tyr], [Y], [Polar, neutral]),
+  ([20], [Alpha amino acid], [Valine], [Val], [V], [Non-polar]),
+  ([21], [Modified amino acid], [Selenocysteine], [Sec], [U], [Special]),
+  ([22], [Modified amino acid], [Pyrrolysine], [Pyl], [O], [Special]),
+)
+
+// Table 2: Full-width long table (spans both columns)
+#figure(
+  placement: top,
+  scope: "parent",
+  table(
+    columns: (auto, 1fr, 1fr, auto, auto, 1fr),
+    inset: 8pt,
+    align: left,
+    stroke: none,
+
+    // Header that repeats on each page break
+    table.header(
+      table.hline(),
+      [*No.*], [*Category*], [*Name*], [*3-Letter*], [*1-Letter*], [*Properties*],
+      table.hline(),
+    ),
+
+    // Table data
+    ..long-table-data.flatten(),
+
+    // Final row
+    table.hline(),
+  ),
+  caption: [Complete list of amino acids with their abbreviations and properties. This full-width table spans across both columns.],
+) <tbl2>
+
+// Alternative approach: Manual column break with continuation text
+#v(1em)
+#text(weight: "bold")[Table 3: Manual Long Table Example]
+#v(0.5em)
+
+// First part of table (Column 1)
+#block[
+  #table(
+    columns: (auto, 1fr, 1fr, 1fr),
+    inset: 5pt,
+    align: left,
+    stroke: 0.5pt,
+
+    table.header(
+      [*ID*], [*Gene Name*], [*Chromosome*], [*Function*],
+    ),
+
+    [1], [BRCA1], [17q21], [DNA repair],
+    [2], [BRCA2], [13q13], [DNA repair],
+    [3], [TP53], [17p13], [Tumor suppressor],
+    [4], [EGFR], [7p12], [Growth factor receptor],
+    [5], [KRAS], [12p12], [Signal transduction],
+    [6], [MYC], [8q24], [Transcription factor],
+    [7], [PTEN], [10q23], [Tumor suppressor],
+    [8], [APC], [5q22], [Tumor suppressor],
+  )
+  #align(right)[#text(style: "italic", size: 8pt)[(to be continued)]]
+]
+
+#colbreak()
+
+// Second part of table (Column 2)
+#block[
+  #align(left)[#text(style: "italic", size: 8pt)[Table 3 (continued)]]
+  #table(
+    columns: (auto, 1fr, 1fr, 1fr),
+    inset: 5pt,
+    align: left,
+    stroke: 0.5pt,
+
+    table.header(
+      [*ID*], [*Gene Name*], [*Chromosome*], [*Function*],
+    ),
+
+    [9], [RB1], [13q14], [Tumor suppressor],
+    [10], [VHL], [3p25], [Tumor suppressor],
+    [11], [NF1], [17q11], [Tumor suppressor],
+    [12], [NF2], [22q12], [Tumor suppressor],
+    [13], [MLH1], [3p22], [DNA mismatch repair],
+    [14], [MSH2], [2p21], [DNA mismatch repair],
+    [15], [CDH1], [16q22], [Cell adhesion],
+    [16], [STK11], [19p13], [Serine/threonine kinase],
+  )
+]
+
+#v(1em)
 
 // #pagebreak()
 
