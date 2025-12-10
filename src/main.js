@@ -157,10 +157,10 @@ async function init() {
 
   // Load uploaded files into virtual filesystem
   await loadFilesIntoVFS();
-  
+
   // Preload sample assets (images for templates)
   await preloadSampleAssets();
-  
+
   // Load saved fonts
   await loadSavedFonts();
 
@@ -171,7 +171,7 @@ async function init() {
   setupKeyboardShortcuts();
 
   isInitialized = true;
-  
+
   // Show onboarding tutorial for first-time users
   if (!localStorage.getItem('tutorialCompleted')) {
     setTimeout(() => startOnboardingTutorial(), 500);
@@ -197,7 +197,7 @@ async function loadAllDocuments() {
 async function getInitialContent() {
   // Load all documents first
   await loadAllDocuments();
-  
+
   if (hasSharedContent()) {
     const content = getSharedContent();
     if (content) {
@@ -224,7 +224,7 @@ async function getInitialContent() {
   // Create default document
   currentDocumentId = generateDocumentId();
   currentFileName = "main.typ";
-  
+
   return `= Welcome to Typst
 
 This is a *live preview* editor for #link("https://typst.app")[Typst].
@@ -263,7 +263,7 @@ function registerServiceWorker() {
     console.log("Skipping Service Worker in development mode");
     return;
   }
-  
+
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker
       .register("/sw.js")
@@ -280,7 +280,7 @@ async function autoSave() {
   try {
     const content = editor.getValue();
     await saveDocument(currentDocumentId, content, currentFileName);
-    
+
     // Update local documents map
     documents.set(currentDocumentId, {
       id: currentDocumentId,
@@ -305,20 +305,30 @@ function generateDocumentId() {
 // =====================
 function updateFileName(newName) {
   currentFileName = newName;
-  
-  // Update header document name
-  const docName = document.querySelector("#doc-name span");
-  if (docName) {
-    docName.textContent = newName;
+
+  // Update header document name text
+  const docNameText = document.querySelector("#doc-name .document-name-text");
+  if (docNameText) {
+    docNameText.textContent = newName;
   }
-  
+
+  // Update active tab name and data attribute
+  const activeTab = document.querySelector(".tab.active");
+  if (activeTab) {
+    activeTab.setAttribute("data-file", newName);
+    const tabName = activeTab.querySelector(".tab-name");
+    if (tabName) {
+      tabName.textContent = newName;
+    }
+  }
+
   // Update documents map
   if (currentDocumentId && documents.has(currentDocumentId)) {
     const doc = documents.get(currentDocumentId);
     doc.name = newName;
     documents.set(currentDocumentId, doc);
   }
-  
+
   // Re-render file tree to reflect changes
   renderFileTree();
 }
@@ -329,10 +339,10 @@ function updateFileName(newName) {
 function renderFileTree() {
   const fileTree = document.getElementById("file-tree");
   if (!fileTree) return;
-  
+
   // Sort documents by updatedAt (most recent first)
   const sortedDocs = Array.from(documents.values()).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-  
+
   if (sortedDocs.length === 0) {
     // Show current unsaved document
     fileTree.innerHTML = `
@@ -352,7 +362,7 @@ function renderFileTree() {
       </div>
     `).join('');
   }
-  
+
   // Add click handlers for switching documents
   fileTree.querySelectorAll('.file-item').forEach(item => {
     item.addEventListener('click', (e) => {
@@ -363,7 +373,7 @@ function renderFileTree() {
       }
     });
   });
-  
+
   // Add delete handlers - use event delegation for better reliability
   fileTree.querySelectorAll('.delete-doc-btn').forEach(btn => {
     btn.onclick = function(e) {
@@ -393,12 +403,12 @@ function getUniqueFileName(baseName) {
   if (!isFileNameTaken(baseName)) {
     return baseName;
   }
-  
+
   // Extract name and extension
   const lastDot = baseName.lastIndexOf('.');
   const name = lastDot > 0 ? baseName.substring(0, lastDot) : baseName;
   const ext = lastDot > 0 ? baseName.substring(lastDot) : '.typ';
-  
+
   let counter = 1;
   let newName = `${name}-${counter}${ext}`;
   while (isFileNameTaken(newName)) {
@@ -413,35 +423,35 @@ async function switchDocument(docId) {
   if (currentDocumentId && editor) {
     await autoSave();
   }
-  
+
   const doc = documents.get(docId);
   if (!doc) {
     showToast("Document not found");
     return;
   }
-  
+
   // Switch to new document
   currentDocumentId = docId;
   currentFileName = doc.name || 'Untitled.typ';
-  
+
   // Update editor content
   editor.setValue(doc.content || '');
-  
+
   // Update UI
   updateFileName(currentFileName);
-  
+
   // Compile new content
   compile(editor.getValue());
-  
+
   showToast(`Opened "${currentFileName}"`);
 }
 
 function deleteDocumentHandler(docId) {
   const doc = documents.get(docId);
   if (!doc) return;
-  
+
   const fileName = doc.name || 'Untitled.typ';
-  
+
   // Show custom confirmation modal
   showConfirmModal(
     "Delete Document",
@@ -451,7 +461,7 @@ function deleteDocumentHandler(docId) {
       try {
         await deleteDocument(docId);
         documents.delete(docId);
-        
+
         // If we deleted the current document, switch to another or create new
         if (docId === currentDocumentId) {
           const remainingDocs = Array.from(documents.values());
@@ -466,7 +476,7 @@ function deleteDocumentHandler(docId) {
         } else {
           renderFileTree();
         }
-        
+
         showToast(`Deleted "${fileName}"`);
       } catch (e) {
         console.error("Failed to delete document:", e);
@@ -487,13 +497,13 @@ function showConfirmModal(title, message, confirmText, onConfirm) {
       </div>
     </div>
   `;
-  
+
   showModal(title, content);
-  
+
   document.getElementById("confirm-cancel").addEventListener("click", () => {
     closeModal();
   });
-  
+
   document.getElementById("confirm-ok").addEventListener("click", () => {
     closeModal();
     onConfirm();
@@ -505,35 +515,35 @@ function createNewDocument(fileName) {
   if (currentDocumentId && editor && isInitialized) {
     autoSave();
   }
-  
+
   // Ensure unique filename
   const uniqueFileName = getUniqueFileName(fileName);
-  
+
   // Generate new document
   currentDocumentId = generateDocumentId();
   currentFileName = uniqueFileName;
-  
+
   const newDoc = {
     id: currentDocumentId,
     name: currentFileName,
     content: `= New Document\n\nStart writing here...\n`,
     updatedAt: Date.now()
   };
-  
+
   documents.set(currentDocumentId, newDoc);
-  
+
   // Update editor
   if (editor) {
     editor.setValue(newDoc.content);
   }
-  
+
   // Update UI
   updateFileName(currentFileName);
   renderFileTree();
-  
+
   // Save to storage
   autoSave();
-  
+
   // Return actual filename used (in case it was modified for uniqueness)
   return uniqueFileName;
 }
@@ -584,7 +594,7 @@ function setCompileStatus(status, error = "", diagnostics = []) {
   compileStatus = status;
   errorMessage = error;
   updateStatusBar();
-  
+
   const errorWindow = document.getElementById("error-window");
   if (status === "error" && (error || diagnostics.length > 0)) {
     showErrorWindow(error, diagnostics);
@@ -603,10 +613,10 @@ function setCompileStatus(status, error = "", diagnostics = []) {
 function showErrorWindow(summary, diagnostics) {
   const errorWindow = document.getElementById("error-window");
   if (!errorWindow) return;
-  
+
   const errorCount = diagnostics.filter(d => d.severity === "error").length;
   const warningCount = diagnostics.filter(d => d.severity === "warning").length;
-  
+
   // Update header with counts
   const headerText = errorWindow.querySelector(".error-window-title");
   if (headerText) {
@@ -615,11 +625,11 @@ function showErrorWindow(summary, diagnostics) {
     if (warningCount > 0) parts.push(`${warningCount} Warning${warningCount > 1 ? 's' : ''}`);
     headerText.textContent = parts.length > 0 ? parts.join(', ') : 'Compilation Error';
   }
-  
+
   // Get source code for code snippets
   const sourceCode = editor ? editor.getValue() : '';
   const sourceLines = sourceCode.split('\n');
-  
+
   // Render diagnostics list
   const errorList = errorWindow.querySelector(".error-list");
   if (errorList) {
@@ -628,14 +638,14 @@ function showErrorWindow(summary, diagnostics) {
       const severityClass = d.severity || "error";
       const location = formatErrorLocation(d);
       const hasLocation = d.line !== null;
-      
+
       // Generate code snippet if we have line info
       const codeSnippet = generateCodeSnippet(d, sourceLines);
-      
+
       return `
-        <div class="error-item ${severityClass} ${hasLocation ? 'clickable' : ''}" 
-             data-index="${index}" 
-             data-line="${d.line || ''}" 
+        <div class="error-item ${severityClass} ${hasLocation ? 'clickable' : ''}"
+             data-index="${index}"
+             data-line="${d.line || ''}"
              data-column="${d.column || ''}">
           <div class="error-item-header">
             <span class="error-severity-icon ${severityClass}">${severityIcon}</span>
@@ -647,7 +657,7 @@ function showErrorWindow(summary, diagnostics) {
         </div>
       `;
     }).join('');
-    
+
     // Add click handlers for navigating to error locations
     errorList.querySelectorAll('.error-item.clickable').forEach(item => {
       item.addEventListener('click', () => {
@@ -661,36 +671,36 @@ function showErrorWindow(summary, diagnostics) {
       });
     });
   }
-  
+
   errorWindow.classList.add("visible");
 }
 
 // Generate a code snippet for an error diagnostic
 function generateCodeSnippet(diagnostic, sourceLines) {
   if (diagnostic.line === null || diagnostic.line === undefined) return '';
-  
+
   const errorLine = diagnostic.line;
   const startCol = diagnostic.column || 1;
   const endCol = diagnostic.endColumn || (startCol + 1);
   const endLine = diagnostic.endLine || errorLine;
-  
+
   // Show context: 1 line before, error lines, 1 line after
   const contextBefore = 1;
   const contextAfter = 1;
   const startLineIdx = Math.max(0, errorLine - 1 - contextBefore);
   const endLineIdx = Math.min(sourceLines.length - 1, endLine - 1 + contextAfter);
-  
+
   let snippetHtml = '<div class="error-code-snippet">';
-  
+
   for (let i = startLineIdx; i <= endLineIdx; i++) {
     const lineNum = i + 1;
     const lineContent = sourceLines[i] || '';
     const isErrorLine = lineNum >= errorLine && lineNum <= endLine;
     const lineClass = isErrorLine ? 'error-line' : '';
-    
+
     // Escape HTML in line content
     let displayContent = escapeHtml(lineContent) || ' '; // Use space for empty lines
-    
+
     // Highlight the error portion on error lines
     if (isErrorLine && lineNum === errorLine && startCol > 0) {
       const before = escapeHtml(lineContent.substring(0, startCol - 1));
@@ -699,7 +709,7 @@ function generateCodeSnippet(diagnostic, sourceLines) {
       const after = escapeHtml(lineContent.substring(errorEnd - 1));
       displayContent = `${before}<span class="error-highlight">${errorPart}</span>${after}`;
     }
-    
+
     snippetHtml += `
       <div class="snippet-line ${lineClass}">
         <span class="snippet-line-num">${lineNum}</span>
@@ -707,7 +717,7 @@ function generateCodeSnippet(diagnostic, sourceLines) {
       </div>
     `;
   }
-  
+
   // Add error indicator arrow
   if (startCol > 0) {
     const padding = ' '.repeat(startCol - 1);
@@ -719,14 +729,14 @@ function generateCodeSnippet(diagnostic, sourceLines) {
       </div>
     `;
   }
-  
+
   snippetHtml += '</div>';
   return snippetHtml;
 }
 
 function formatErrorLocation(diagnostic) {
   if (diagnostic.line === null) return null;
-  
+
   let location = diagnostic.file || "/main.typ";
   location += `:${diagnostic.line}`;
   if (diagnostic.column !== null) {
@@ -754,15 +764,15 @@ function toggleErrorWindow() {
 // =====================
 function highlightErrorLines(diagnostics) {
   console.log("[Main] highlightErrorLines called with:", JSON.stringify(diagnostics, null, 2));
-  
+
   if (!editor) return;
-  
+
   const model = editor.getModel();
   if (!model) return;
-  
+
   // Clear previous decorations
   clearErrorHighlights();
-  
+
   // Create Monaco markers (squiggly underlines)
   const markers = diagnostics
     .filter(d => d.line !== null && d.line !== undefined)
@@ -772,10 +782,10 @@ function highlightErrorLines(diagnostics) {
       // If we have end position, use it; otherwise mark to end of line
       const endLine = d.endLine || startLine;
       const endCol = d.endColumn || model.getLineMaxColumn(endLine);
-      
+
       const marker = {
-        severity: d.severity === "warning" 
-          ? monaco.MarkerSeverity.Warning 
+        severity: d.severity === "warning"
+          ? monaco.MarkerSeverity.Warning
           : monaco.MarkerSeverity.Error,
         startLineNumber: startLine,
         startColumn: startCol,
@@ -784,16 +794,16 @@ function highlightErrorLines(diagnostics) {
         message: d.message || "Error",
         source: "typst"
       };
-      
+
       console.log("[Main] Created marker:", marker);
       return marker;
     });
-  
+
   console.log("[Main] Setting Monaco markers:", markers.length, "markers");
-  
+
   // Set markers (shows squiggly underlines)
   monaco.editor.setModelMarkers(model, "typst", markers);
-  
+
   // Also add line decorations for background highlighting
   const newDecorations = diagnostics
     .filter(d => d.line !== null && d.line !== undefined)
@@ -812,20 +822,20 @@ function highlightErrorLines(diagnostics) {
         }
       };
     });
-  
+
   // Apply line decorations
   errorDecorations = editor.deltaDecorations([], newDecorations);
 }
 
 function clearErrorHighlights() {
   if (!editor) return;
-  
+
   // Clear Monaco markers
   const model = editor.getModel();
   if (model) {
     monaco.editor.setModelMarkers(model, "typst", []);
   }
-  
+
   // Clear line decorations
   errorDecorations = editor.deltaDecorations(errorDecorations, []);
 }
@@ -921,7 +931,7 @@ function fitWidth() {
   const preview = document.getElementById("preview-content");
   const container = document.getElementById("pdf-pages");
   const firstPage = container.querySelector(".pdf-page");
-  
+
   if (firstPage && preview) {
     const availableWidth = preview.clientWidth - 48;
     const pageWidth = firstPage.width / currentZoom / 1.5;
@@ -936,7 +946,7 @@ function updateZoom() {
   if (zoomDisplay) {
     zoomDisplay.textContent = `${Math.round(currentZoom * 100)}%`;
   }
-  
+
   if (currentPdfBuffer) {
     // Pass a copy since pdf.js detaches the buffer
     renderPDF(new Uint8Array(currentPdfBuffer));
@@ -948,17 +958,17 @@ function updateZoom() {
 // =====================
 function insertFormatting(before, after = "") {
   if (!editor) return;
-  
+
   const selection = editor.getSelection();
   const selectedText = editor.getModel().getValueInRange(selection);
   const newText = before + selectedText + after;
-  
+
   editor.executeEdits("", [{
     range: selection,
     text: newText,
     forceMoveMarkers: true
   }]);
-  
+
   editor.focus();
 }
 
@@ -967,28 +977,28 @@ function setupFormattingButtons() {
   document.getElementById("fmt-bold").addEventListener("click", () => {
     insertFormatting("*", "*");
   });
-  
+
   document.getElementById("fmt-italic").addEventListener("click", () => {
     insertFormatting("_", "_");
   });
-  
+
   document.getElementById("fmt-underline").addEventListener("click", () => {
     insertFormatting("#underline[", "]");
   });
-  
+
   document.getElementById("fmt-strike").addEventListener("click", () => {
     insertFormatting("#strike[", "]");
   });
-  
+
   // Script formatting
   document.getElementById("fmt-subscript").addEventListener("click", () => {
     insertFormatting("#sub[", "]");
   });
-  
+
   document.getElementById("fmt-superscript").addEventListener("click", () => {
     insertFormatting("#super[", "]");
   });
-  
+
   // Structure formatting
   document.getElementById("fmt-heading").addEventListener("click", () => {
     const position = editor.getPosition();
@@ -1004,7 +1014,7 @@ function setupFormattingButtons() {
     }
     editor.focus();
   });
-  
+
   document.getElementById("fmt-heading2").addEventListener("click", () => {
     const position = editor.getPosition();
     editor.executeEdits("", [{
@@ -1014,7 +1024,7 @@ function setupFormattingButtons() {
     }]);
     editor.focus();
   });
-  
+
   document.getElementById("fmt-list").addEventListener("click", () => {
     const position = editor.getPosition();
     editor.executeEdits("", [{
@@ -1024,24 +1034,24 @@ function setupFormattingButtons() {
     }]);
     editor.focus();
   });
-  
+
   document.getElementById("fmt-quote").addEventListener("click", () => {
     insertFormatting("#quote[", "]");
   });
-  
+
   // Alignment
   document.getElementById("fmt-align-left").addEventListener("click", () => {
     insertFormatting("#align(left)[", "]");
   });
-  
+
   document.getElementById("fmt-align-center").addEventListener("click", () => {
     insertFormatting("#align(center)[", "]");
   });
-  
+
   document.getElementById("fmt-align-right").addEventListener("click", () => {
     insertFormatting("#align(right)[", "]");
   });
-  
+
   // Insert formatting
   document.getElementById("fmt-link").addEventListener("click", () => {
     const selection = editor.getSelection();
@@ -1052,23 +1062,23 @@ function setupFormattingButtons() {
       insertFormatting('#link("url")[', "text]");
     }
   });
-  
+
   document.getElementById("fmt-image").addEventListener("click", () => {
     insertFormatting('#image("', '", width: 80%)');
   });
-  
+
   document.getElementById("fmt-table").addEventListener("click", () => {
     insertFormatting('#table(\n  columns: (1fr, 1fr),\n  [Header 1], [Header 2],\n  [Cell 1], [Cell 2],\n)', '');
   });
-  
+
   document.getElementById("fmt-code").addEventListener("click", () => {
     insertFormatting("`", "`");
   });
-  
+
   document.getElementById("fmt-codeblock").addEventListener("click", () => {
     insertFormatting('```\n', '\n```');
   });
-  
+
   document.getElementById("fmt-math").addEventListener("click", () => {
     insertFormatting("$", "$");
   });
@@ -1079,15 +1089,15 @@ function setupFormattingButtons() {
 // =====================
 function switchEditorMode(mode) {
   if (mode === editorMode) return;
-  
+
   editorMode = mode;
-  
+
   const codeEditor = document.getElementById("monaco-editor");
   const visualContainer = document.getElementById("visual-editor-container");
   const btnCode = document.getElementById("btn-mode-code");
   const btnVisual = document.getElementById("btn-mode-visual");
   const modeToggle = document.querySelector(".editor-mode-toggle");
-  
+
   if (mode === 'visual') {
     // Switch to visual mode
     codeEditor.style.display = "none";
@@ -1095,11 +1105,11 @@ function switchEditorMode(mode) {
     btnCode.classList.remove("active");
     btnVisual.classList.add("active");
     modeToggle.classList.add("visual-active");
-    
+
     // Convert current code to visual HTML
     const typstCode = editor.getValue();
     updateVisualEditor(typstCode);
-    
+
     showToast("Rich Text Editor");
   } else {
     // Switch to code mode
@@ -1108,17 +1118,17 @@ function switchEditorMode(mode) {
     btnCode.classList.add("active");
     btnVisual.classList.remove("active");
     modeToggle.classList.remove("visual-active");
-    
+
     // Convert visual HTML back to Typst code
     const visualEditor = document.getElementById("visual-editor");
     const newTypstCode = htmlToTypst(visualEditor);
-    
+
     if (newTypstCode !== editor.getValue()) {
       isVisualEditorSyncing = true;
       editor.setValue(newTypstCode);
       isVisualEditorSyncing = false;
     }
-    
+
     editor.focus();
     showToast("Source Editor");
   }
@@ -1133,21 +1143,21 @@ function updateVisualEditor(typstCode) {
 function updateVisualLineNumbers() {
   const visualEditor = document.getElementById("visual-editor");
   const lineNumbersContainer = document.getElementById("visual-line-numbers");
-  
+
   if (!visualEditor || !lineNumbersContainer) return;
-  
+
   // Count the number of child elements (each represents a line)
   const children = visualEditor.children;
   const lineCount = Math.max(children.length, 1);
-  
+
   // Generate line numbers HTML
   let lineNumbersHtml = '';
   for (let i = 1; i <= lineCount; i++) {
     lineNumbersHtml += `<div class="visual-line-number">${i}</div>`;
   }
-  
+
   lineNumbersContainer.innerHTML = lineNumbersHtml;
-  
+
   // Sync scroll position
   visualEditor.addEventListener('scroll', syncLineNumbersScroll);
 }
@@ -1155,7 +1165,7 @@ function updateVisualLineNumbers() {
 function syncLineNumbersScroll() {
   const visualEditor = document.getElementById("visual-editor");
   const lineNumbersContainer = document.getElementById("visual-line-numbers");
-  
+
   if (lineNumbersContainer && visualEditor) {
     lineNumbersContainer.scrollTop = visualEditor.scrollTop;
   }
@@ -1164,7 +1174,7 @@ function syncLineNumbersScroll() {
 // Convert Typst markup to HTML for visual editor
 function typstToHtml(typst) {
   let html = typst;
-  
+
   // Process line by line for block elements
   const lines = html.split('\n');
   const processedLines = [];
@@ -1173,10 +1183,10 @@ function typstToHtml(typst) {
   let codeBlockLang = '';
   let inMathBlock = false;
   let mathBlockContent = [];
-  
+
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
-    
+
     // Handle code blocks
     if (line.trim().startsWith('```')) {
       if (!inCodeBlock) {
@@ -1190,12 +1200,12 @@ function typstToHtml(typst) {
         continue;
       }
     }
-    
+
     if (inCodeBlock) {
       codeBlockContent.push(line);
       continue;
     }
-    
+
     // Handle math blocks ($$...$$)
     if (line.trim().startsWith('$ ') && line.trim().endsWith(' $') && line.trim().length > 4) {
       // Display math block
@@ -1203,7 +1213,7 @@ function typstToHtml(typst) {
       processedLines.push(`<div class="visual-math-block" data-math="${escapeHtml(mathContent)}">$ ${escapeHtml(mathContent)} $</div>`);
       continue;
     }
-    
+
     // Headings
     if (line.startsWith('= ')) {
       processedLines.push(`<h1 class="visual-h1" data-level="1">${processInlineTypst(line.slice(2))}</h1>`);
@@ -1221,7 +1231,7 @@ function typstToHtml(typst) {
       processedLines.push(`<h4 class="visual-h4" data-level="4">${processInlineTypst(line.slice(5))}</h4>`);
       continue;
     }
-    
+
     // List items
     if (line.match(/^- /)) {
       processedLines.push(`<div class="visual-list-item" data-type="bullet"><span class="visual-bullet">•</span>${processInlineTypst(line.slice(2))}</div>`);
@@ -1236,41 +1246,41 @@ function typstToHtml(typst) {
       processedLines.push(`<div class="visual-list-item" data-type="numbered" data-num="${match[1]}"><span class="visual-num">${match[1]}.</span>${processInlineTypst(line.slice(match[0].length))}</div>`);
       continue;
     }
-    
+
     // Block directives (simplified handling)
     if (line.trim().startsWith('#set ') || line.trim().startsWith('#show ') || line.trim().startsWith('#let ')) {
       processedLines.push(`<div class="visual-directive">${escapeHtml(line)}</div>`);
       continue;
     }
-    
+
     // Figure blocks
     if (line.trim().startsWith('#figure(')) {
       processedLines.push(`<div class="visual-figure">${escapeHtml(line)}</div>`);
       continue;
     }
-    
+
     // Table blocks
     if (line.trim().startsWith('#table(')) {
       processedLines.push(`<div class="visual-table">${escapeHtml(line)}</div>`);
       continue;
     }
-    
+
     // Comments
     if (line.trim().startsWith('//')) {
       processedLines.push(`<div class="visual-comment">${escapeHtml(line)}</div>`);
       continue;
     }
-    
+
     // Empty lines become paragraph breaks
     if (line.trim() === '') {
       processedLines.push('<div class="visual-paragraph-break"></div>');
       continue;
     }
-    
+
     // Regular paragraphs
     processedLines.push(`<p class="visual-paragraph">${processInlineTypst(line)}</p>`);
   }
-  
+
   // Join without extra newlines - the HTML structure provides the spacing
   return processedLines.join('');
 }
@@ -1278,62 +1288,62 @@ function typstToHtml(typst) {
 // Process inline Typst formatting
 function processInlineTypst(text) {
   let result = escapeHtml(text);
-  
+
   // Bold *text*
   result = result.replace(/\*([^*]+)\*/g, '<strong class="visual-bold">$1</strong>');
-  
+
   // Italic _text_
   result = result.replace(/_([^_]+)_/g, '<em class="visual-italic">$1</em>');
-  
+
   // Inline code `text`
   result = result.replace(/`([^`]+)`/g, '<code class="visual-inline-code">$1</code>');
-  
+
   // Inline math $text$
   result = result.replace(/\$([^$]+)\$/g, '<span class="visual-inline-math">$$$1$$</span>');
-  
+
   // Links #link("url")[text]
   result = result.replace(/#link\(&quot;([^&]+)&quot;\)\[([^\]]+)\]/g, '<a class="visual-link" href="$1">$2</a>');
-  
+
   // Simple function calls like #lorem(50)
   result = result.replace(/#(\w+)\(([^)]*)\)/g, '<span class="visual-function">#$1($2)</span>');
-  
+
   // Subscript #sub[text]
   result = result.replace(/#sub\[([^\]]+)\]/g, '<sub class="visual-sub">$1</sub>');
-  
+
   // Superscript #super[text]
   result = result.replace(/#super\[([^\]]+)\]/g, '<sup class="visual-super">$1</sup>');
-  
+
   // Underline #underline[text]
   result = result.replace(/#underline\[([^\]]+)\]/g, '<u class="visual-underline">$1</u>');
-  
+
   // Strike #strike[text]
   result = result.replace(/#strike\[([^\]]+)\]/g, '<s class="visual-strike">$1</s>');
-  
+
   // Labels <label>
   result = result.replace(/&lt;(\w+)&gt;/g, '<span class="visual-label">&lt;$1&gt;</span>');
-  
+
   // References @label
   result = result.replace(/@(\w+)/g, '<span class="visual-ref">@$1</span>');
-  
+
   return result;
 }
 
 // Convert HTML from visual editor back to Typst
 function htmlToTypst(visualEditor) {
   const lines = [];
-  
+
   function processNode(node) {
     if (node.nodeType === Node.TEXT_NODE) {
       return node.textContent;
     }
-    
+
     if (node.nodeType !== Node.ELEMENT_NODE) {
       return '';
     }
-    
+
     const tag = node.tagName.toLowerCase();
     const className = node.className || '';
-    
+
     // Handle different element types
     if (className.includes('visual-h1')) {
       return '= ' + processChildren(node);
@@ -1347,7 +1357,7 @@ function htmlToTypst(visualEditor) {
     if (className.includes('visual-h4')) {
       return '==== ' + processChildren(node);
     }
-    
+
     if (className.includes('visual-list-item')) {
       const type = node.dataset.type;
       const content = processChildrenSkipMarker(node);
@@ -1356,30 +1366,30 @@ function htmlToTypst(visualEditor) {
       if (type === 'numbered') return node.dataset.num + '. ' + content;
       return '- ' + content;
     }
-    
+
     if (className.includes('visual-code-block')) {
       const lang = node.dataset.lang || '';
       const code = node.querySelector('code');
       return '```' + lang + '\n' + (code ? code.textContent : '') + '\n```';
     }
-    
+
     if (className.includes('visual-math-block')) {
       return '$ ' + (node.dataset.math || node.textContent.replace(/^\$\s*/, '').replace(/\s*\$$/, '')) + ' $';
     }
-    
-    if (className.includes('visual-directive') || className.includes('visual-figure') || 
+
+    if (className.includes('visual-directive') || className.includes('visual-figure') ||
         className.includes('visual-table') || className.includes('visual-comment')) {
       return node.textContent;
     }
-    
+
     if (className.includes('visual-paragraph-break')) {
       return '';
     }
-    
+
     if (className.includes('visual-paragraph') || tag === 'p') {
       return processChildren(node);
     }
-    
+
     // Inline elements
     if (className.includes('visual-bold') || tag === 'strong' || tag === 'b') {
       return '*' + processChildren(node) + '*';
@@ -1419,21 +1429,21 @@ function htmlToTypst(visualEditor) {
     if (className.includes('visual-ref')) {
       return node.textContent;
     }
-    
+
     // Line breaks
     if (tag === 'br') {
       return '\n';
     }
-    
+
     // Divs and spans - just process children
     if (tag === 'div' || tag === 'span') {
       return processChildren(node);
     }
-    
+
     // Default: process children
     return processChildren(node);
   }
-  
+
   function processChildren(node) {
     let result = '';
     for (const child of node.childNodes) {
@@ -1441,12 +1451,12 @@ function htmlToTypst(visualEditor) {
     }
     return result;
   }
-  
+
   function processChildrenSkipMarker(node) {
     let result = '';
     for (const child of node.childNodes) {
       // Skip bullet/enum markers
-      if (child.className && (child.className.includes('visual-bullet') || 
+      if (child.className && (child.className.includes('visual-bullet') ||
           child.className.includes('visual-enum') || child.className.includes('visual-num'))) {
         continue;
       }
@@ -1454,7 +1464,7 @@ function htmlToTypst(visualEditor) {
     }
     return result;
   }
-  
+
   // Process each top-level child
   for (const child of visualEditor.childNodes) {
     // Skip whitespace-only text nodes between elements
@@ -1467,7 +1477,7 @@ function htmlToTypst(visualEditor) {
       lines.push(line);
     }
   }
-  
+
   // Clean up multiple consecutive empty lines
   const cleanedLines = [];
   let lastWasEmpty = false;
@@ -1479,32 +1489,32 @@ function htmlToTypst(visualEditor) {
     cleanedLines.push(line);
     lastWasEmpty = isEmpty;
   }
-  
+
   return cleanedLines.join('\n');
 }
 
 // Handle input in visual editor
 function handleVisualEditorInput(e) {
   if (isVisualEditorSyncing) return;
-  
+
   // Update line numbers immediately
   updateVisualLineNumbers();
-  
+
   // Debounce sync to code editor
   clearTimeout(compileTimer);
   compileTimer = setTimeout(() => {
     const visualEditor = document.getElementById("visual-editor");
     const typstCode = htmlToTypst(visualEditor);
-    
+
     isVisualEditorSyncing = true;
     editor.setValue(typstCode);
     isVisualEditorSyncing = false;
-    
+
     if (autoCompile) {
       compile(typstCode);
     }
   }, COMPILE_DELAY);
-  
+
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => autoSave(), AUTO_SAVE_DELAY);
 }
@@ -1523,25 +1533,25 @@ function handleVisualEditorKeydown(e) {
     e.preventDefault();
     document.execCommand('insertParagraph', false);
   }
-  
+
   // Tab key - indent
   if (e.key === 'Tab') {
     e.preventDefault();
     document.execCommand('insertText', false, '  ');
   }
-  
+
   // Ctrl/Cmd + B - Bold
   if ((e.ctrlKey || e.metaKey) && e.key === 'b') {
     e.preventDefault();
     applyVisualFormatting('bold');
   }
-  
+
   // Ctrl/Cmd + I - Italic
   if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
     e.preventDefault();
     applyVisualFormatting('italic');
   }
-  
+
   // Ctrl/Cmd + U - Underline
   if ((e.ctrlKey || e.metaKey) && e.key === 'u') {
     e.preventDefault();
@@ -1553,12 +1563,12 @@ function handleVisualEditorKeydown(e) {
 function applyVisualFormatting(format) {
   const selection = window.getSelection();
   if (!selection.rangeCount) return;
-  
+
   const range = selection.getRangeAt(0);
   const selectedText = range.toString();
-  
+
   if (!selectedText) return;
-  
+
   let wrapper;
   switch (format) {
     case 'bold':
@@ -1576,9 +1586,9 @@ function applyVisualFormatting(format) {
     default:
       return;
   }
-  
+
   range.surroundContents(wrapper);
-  
+
   // Trigger sync
   handleVisualEditorInput();
 }
@@ -1587,7 +1597,7 @@ function applyVisualFormatting(format) {
 // RECOMPILE FUNCTIONS
 // =====================
 function manualRecompile() {
-  const source = editorMode === 'visual' 
+  const source = editorMode === 'visual'
     ? htmlToTypst(document.getElementById("visual-editor"))
     : editor.getValue();
   compile(source);
@@ -1656,15 +1666,15 @@ function showCustomFindDialog() {
       </div>
     </div>
   `;
-  
+
   showModal("Find", content);
-  
+
   const findInput = document.getElementById("find-input");
   const resultsDiv = document.getElementById("find-results");
-  
+
   let currentIndex = -1;
   let matches = [];
-  
+
   function performFind() {
     const searchText = findInput.value;
     if (!searchText) {
@@ -1672,17 +1682,17 @@ function showCustomFindDialog() {
       matches = [];
       return;
     }
-    
+
     const visualEditor = document.getElementById("visual-editor");
     const text = visualEditor.innerText;
     const caseSensitive = document.getElementById("find-case-sensitive").checked;
     const wholeWord = document.getElementById("find-whole-word").checked;
-    
+
     // Find all matches
     matches = [];
     let searchStr = caseSensitive ? searchText : searchText.toLowerCase();
     let textToSearch = caseSensitive ? text : text.toLowerCase();
-    
+
     let pos = 0;
     while ((pos = textToSearch.indexOf(searchStr, pos)) !== -1) {
       if (wholeWord) {
@@ -1696,28 +1706,28 @@ function showCustomFindDialog() {
       matches.push(pos);
       pos++;
     }
-    
-    resultsDiv.textContent = matches.length > 0 
+
+    resultsDiv.textContent = matches.length > 0
       ? "Found " + matches.length + " match" + (matches.length > 1 ? "es" : "")
       : "No matches found";
-    
+
     currentIndex = matches.length > 0 ? 0 : -1;
     highlightMatch();
   }
-  
+
   function highlightMatch() {
     // Clear previous highlights
     const visualEditor = document.getElementById("visual-editor");
     visualEditor.querySelectorAll('.search-highlight').forEach(el => {
       el.outerHTML = el.innerHTML;
     });
-    
+
     if (currentIndex >= 0 && matches.length > 0) {
       // Highlight current match (simplified - would need more complex implementation for proper highlighting)
       resultsDiv.textContent = "Match " + (currentIndex + 1) + " of " + matches.length;
     }
   }
-  
+
   findInput.addEventListener("input", performFind);
   findInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
@@ -1733,21 +1743,21 @@ function showCustomFindDialog() {
       closeModal();
     }
   });
-  
+
   document.getElementById("find-prev").addEventListener("click", () => {
     if (matches.length > 0) {
       currentIndex = (currentIndex - 1 + matches.length) % matches.length;
       highlightMatch();
     }
   });
-  
+
   document.getElementById("find-next").addEventListener("click", () => {
     if (matches.length > 0) {
       currentIndex = (currentIndex + 1) % matches.length;
       highlightMatch();
     }
   });
-  
+
   document.getElementById("find-all").addEventListener("click", performFind);
 }
 
@@ -1776,15 +1786,15 @@ function showCustomFindReplaceDialog() {
       </div>
     </div>
   `;
-  
+
   showModal("Find & Replace", content);
-  
+
   const findInput = document.getElementById("find-input");
   const replaceInput = document.getElementById("replace-input");
   const resultsDiv = document.getElementById("find-results");
-  
+
   let matchCount = 0;
-  
+
   function countMatches() {
     const searchText = findInput.value;
     if (!searchText) {
@@ -1792,58 +1802,58 @@ function showCustomFindReplaceDialog() {
       matchCount = 0;
       return;
     }
-    
+
     const visualEditor = document.getElementById("visual-editor");
     const text = visualEditor.innerText;
     const caseSensitive = document.getElementById("find-case-sensitive").checked;
-    
+
     let searchStr = caseSensitive ? searchText : searchText.toLowerCase();
     let textToSearch = caseSensitive ? text : text.toLowerCase();
-    
+
     matchCount = 0;
     let pos = 0;
     while ((pos = textToSearch.indexOf(searchStr, pos)) !== -1) {
       matchCount++;
       pos++;
     }
-    
-    resultsDiv.textContent = matchCount > 0 
+
+    resultsDiv.textContent = matchCount > 0
       ? "Found " + matchCount + " match" + (matchCount > 1 ? "es" : "")
       : "No matches found";
   }
-  
+
   function replaceAll() {
     const searchText = findInput.value;
     const replaceText = replaceInput.value;
     if (!searchText) return;
-    
+
     // For visual editor, we need to sync back to code editor and do replace there
     if (editorMode === 'visual') {
       const visualEditor = document.getElementById("visual-editor");
       const typstCode = htmlToTypst(visualEditor);
-      
+
       const caseSensitive = document.getElementById("find-case-sensitive").checked;
       let newCode;
-      
+
       if (caseSensitive) {
         newCode = typstCode.split(searchText).join(replaceText);
       } else {
         newCode = typstCode.replace(new RegExp(escapeRegex(searchText), 'gi'), replaceText);
       }
-      
+
       editor.setValue(newCode);
       updateVisualEditor(newCode);
       compile(newCode);
-      
+
       countMatches();
       showToast("Replaced " + matchCount + " occurrence" + (matchCount > 1 ? "s" : ""));
     }
   }
-  
+
   findInput.addEventListener("input", countMatches);
-  
+
   document.getElementById("replace-all").addEventListener("click", replaceAll);
-  
+
   document.getElementById("find-next").addEventListener("click", countMatches);
   document.getElementById("find-prev").addEventListener("click", countMatches);
   document.getElementById("replace-one").addEventListener("click", () => {
@@ -1916,10 +1926,10 @@ function setupUI() {
           <div class="sidebar-content">
             <!-- Documents Section -->
             <div class="sidebar-section">
-              <div class="sidebar-section-header">
+              <div class="sidebar-section-header" data-tooltip="Documents">
                 <div class="section-title">
                   <span class="section-icon">${icons.folder}</span>
-                  <span>Documents</span>
+                  <span class="section-label">Documents</span>
                 </div>
                 <div class="sidebar-actions">
                   <button class="icon-btn tiny" id="btn-new-file" title="New Document">
@@ -1931,14 +1941,14 @@ function setupUI() {
                 <!-- Rendered dynamically by renderFileTree() -->
               </div>
             </div>
-            
+
             <!-- Assets Section -->
             <div class="sidebar-section">
-              <div class="sidebar-section-header collapsible" id="uploads-header">
+              <div class="sidebar-section-header collapsible" id="uploads-header" data-tooltip="Assets">
                 <div class="section-title">
                   <span class="section-chevron">${icons.chevronDown}</span>
                   <span class="section-icon">${icons.image}</span>
-                  <span>Assets</span>
+                  <span class="section-label">Assets</span>
                 </div>
                 <div class="sidebar-actions">
                   <button class="icon-btn tiny" id="btn-upload" title="Upload Image or File">
@@ -1952,10 +1962,10 @@ function setupUI() {
                 </div>
               </div>
             </div>
-            
+
             <!-- Fonts Section -->
             <div class="sidebar-section">
-              <div class="sidebar-section-header collapsible" id="fonts-header">
+              <div class="sidebar-section-header collapsible" id="fonts-header" data-tooltip="Fonts">
                 <div class="section-title">
                   <span class="section-chevron">${icons.chevronDown}</span>
                   <span class="section-icon">
@@ -1963,7 +1973,7 @@ function setupUI() {
                       <path d="M4 7V4h16v3M9 20h6M12 4v16"/>
                     </svg>
                   </span>
-                  <span>Fonts</span>
+                  <span class="section-label">Fonts</span>
                 </div>
                 <div class="sidebar-actions">
                   <button class="icon-btn tiny" id="btn-upload-font" title="Upload Custom Font">
@@ -1978,15 +1988,16 @@ function setupUI() {
               </div>
             </div>
           </div>
-          
+
           <!-- Sidebar Footer -->
           <div class="sidebar-footer">
-            <div class="sidebar-footer-info">
-              <span class="storage-indicator">
-                <span class="storage-dot"></span>
-                Local Storage
-              </span>
-            </div>
+            <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse Sidebar">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="collapse-icon">
+                <polyline points="11 17 6 12 11 7"></polyline>
+                <polyline points="18 17 13 12 18 7"></polyline>
+              </svg>
+              <span class="collapse-text">Collapse</span>
+            </button>
           </div>
         </aside>
 
@@ -2026,7 +2037,7 @@ function setupUI() {
               </div>
             </div>
           </div>
-          
+
           <!-- Compact Formatting Toolbar -->
           <div class="format-bar" id="format-bar">
             <div class="fmt-dropdown" id="font-dropdown">
@@ -2078,7 +2089,7 @@ function setupUI() {
             <button class="fmt-btn search-btn" id="btn-find" title="Find (Ctrl+F)">${icons.search}</button>
             <button class="fmt-btn search-btn" id="btn-replace" title="Find & Replace (Ctrl+H)">⇄</button>
           </div>
-          
+
           <div class="editor-content" id="monaco-editor"></div>
           <div class="visual-editor-container" id="visual-editor-container" style="display: none;">
             <div class="visual-editor-wrapper">
@@ -2086,7 +2097,7 @@ function setupUI() {
               <div class="visual-editor" id="visual-editor" contenteditable="true"></div>
             </div>
           </div>
-          
+
           <!-- Error Window (Console Panel) -->
           <div class="error-window" id="error-window">
             <div class="error-window-header">
@@ -2205,16 +2216,16 @@ function setupUI() {
 
   // Setup event listeners
   setupEventListeners();
-  
+
   // Setup resizers
   setupResizers();
-  
+
   // Render file tree
   renderFileTree();
-  
+
   // Update uploads list
   updateUploadsList();
-  
+
   // Setup drag and drop for uploads
   setupUploadsDragDrop();
 }
@@ -2222,6 +2233,10 @@ function setupUI() {
 function setupEventListeners() {
   // Sidebar toggle
   document.getElementById("toggle-sidebar").addEventListener("click", toggleSidebar);
+
+  // Sidebar collapse
+  document.getElementById("sidebar-collapse-btn").addEventListener("click", toggleSidebarCollapse);
+  loadSidebarState();
 
   // Templates
   document.getElementById("btn-templates").addEventListener("click", showTemplatesModal);
@@ -2281,7 +2296,7 @@ function setupEventListeners() {
       errorWindow.classList.remove("visible");
     }
   });
-  
+
   document.getElementById("btn-toggle-error").addEventListener("click", () => {
     const errorWindow = document.getElementById("error-window");
     if (errorWindow) {
@@ -2309,17 +2324,17 @@ function setupEventListeners() {
       showToast("Document cleared");
     }
   });
-  
+
   // Editor mode toggle
   document.getElementById("btn-mode-code").addEventListener("click", () => switchEditorMode('code'));
   document.getElementById("btn-mode-visual").addEventListener("click", () => switchEditorMode('visual'));
-  
+
   // Visual editor input handling
   const visualEditor = document.getElementById("visual-editor");
   visualEditor.addEventListener("input", handleVisualEditorInput);
   visualEditor.addEventListener("paste", handleVisualEditorPaste);
   visualEditor.addEventListener("keydown", handleVisualEditorKeydown);
-  
+
   // Recompile button and dropdown
   document.getElementById("btn-recompile").addEventListener("click", manualRecompile);
   document.getElementById("btn-recompile-dropdown").addEventListener("click", toggleRecompileDropdown);
@@ -2335,14 +2350,14 @@ function setupEventListeners() {
     closeAllDropdowns();
     showToast("Compilation stopped");
   });
-  
+
   // Close dropdowns when clicking outside
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".recompile-group")) {
       closeAllDropdowns();
     }
   });
-  
+
   // Find and Replace buttons
   document.getElementById("btn-find").addEventListener("click", openFind);
   document.getElementById("btn-replace").addEventListener("click", openFindReplace);
@@ -2351,13 +2366,44 @@ function setupEventListeners() {
 // =====================
 // SIDEBAR
 // =====================
+let sidebarCollapsed = false;
+
 function toggleSidebar() {
   sidebarVisible = !sidebarVisible;
   const sidebar = document.getElementById("sidebar");
   const resizer = document.getElementById("sidebar-resizer");
-  
+
   sidebar.style.display = sidebarVisible ? "flex" : "none";
   resizer.style.display = sidebarVisible ? "block" : "none";
+}
+
+function toggleSidebarCollapse() {
+  sidebarCollapsed = !sidebarCollapsed;
+  const sidebar = document.getElementById("sidebar");
+  const collapseBtn = document.getElementById("sidebar-collapse-btn");
+
+  if (sidebarCollapsed) {
+    sidebar.classList.add("collapsed");
+    collapseBtn.title = "Expand Sidebar";
+  } else {
+    sidebar.classList.remove("collapsed");
+    collapseBtn.title = "Collapse Sidebar";
+  }
+
+  // Save preference
+  localStorage.setItem("sidebar-collapsed", sidebarCollapsed);
+}
+
+// Load sidebar collapse state on init
+function loadSidebarState() {
+  const collapsed = localStorage.getItem("sidebar-collapsed") === "true";
+  if (collapsed) {
+    sidebarCollapsed = true;
+    const sidebar = document.getElementById("sidebar");
+    const collapseBtn = document.getElementById("sidebar-collapse-btn");
+    if (sidebar) sidebar.classList.add("collapsed");
+    if (collapseBtn) collapseBtn.title = "Expand Sidebar";
+  }
 }
 
 // =====================
@@ -2371,13 +2417,13 @@ function setupResizers() {
 function setupResizer(resizerId, panelId, direction) {
   const resizer = document.getElementById(resizerId);
   const panel = document.getElementById(panelId);
-  
+
   let startX, startWidth;
 
   resizer.addEventListener("mousedown", (e) => {
     startX = e.clientX;
     startWidth = panel.offsetWidth;
-    
+
     document.addEventListener("mousemove", resize);
     document.addEventListener("mouseup", stopResize);
     document.body.style.cursor = "col-resize";
@@ -2408,7 +2454,7 @@ function updateStatusBar() {
   const text = statusEl.querySelector("span:last-child");
 
   indicator.className = `status-indicator ${compileStatus}`;
-  
+
   switch (compileStatus) {
     case "compiling":
       text.textContent = "Compiling...";
@@ -2433,7 +2479,7 @@ function updateCursorPosition(position) {
 // =====================
 function showTemplatesModal() {
   const templateList = getTemplateList();
-  
+
   const content = `
     <div class="templates-grid">
       ${templateList.map(t => `
@@ -2496,17 +2542,17 @@ function showNewFileModal() {
     if (!fileName.toLowerCase().endsWith(".typ")) {
       fileName += ".typ";
     }
-    
+
     // Create new document (saves current one automatically)
     // Returns actual filename used (may be modified if duplicate)
     const actualFileName = createNewDocument(fileName);
-    
+
     closeModal();
     showToast(`Created "${actualFileName}"`);
   };
 
   document.getElementById("new-blank").addEventListener("click", handleCreate);
-  
+
   fileNameInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -2621,15 +2667,15 @@ function getSystemTheme() {
 
 function applyTheme() {
   let theme = settings.theme;
-  
+
   // If system, detect the actual theme
   if (theme === "system") {
     theme = getSystemTheme();
   }
-  
+
   // Apply theme to document
   document.documentElement.setAttribute("data-theme", theme);
-  
+
   // Update Monaco editor theme
   if (editor) {
     const monacoTheme = theme === "dark" ? "typst-dark" : "typst-light";
@@ -2658,11 +2704,11 @@ function showHelpModal() {
         <button class="help-tab" data-tab="shortcuts">Shortcuts</button>
         <button class="help-tab" data-tab="resources">Resources</button>
       </div>
-      
+
       <div class="help-tab-content active" id="tab-quickstart">
         <h3>🚀 Getting Started</h3>
         <p>Welcome to Typst Playground! Here's how to get started:</p>
-        
+
         <div class="help-section">
           <h4>1. Write Your Document</h4>
           <p>Type in the editor on the left. Your document compiles automatically!</p>
@@ -2675,34 +2721,34 @@ This is my first document in *Typst*!
 - Beautiful output
 - Fast compilation</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>2. Use Templates</h4>
           <p>Click <strong>Templates</strong> in the toolbar to start with a pre-made template.</p>
         </div>
-        
+
         <div class="help-section">
           <h4>3. Add Images</h4>
           <p>Drag images to the <strong>Uploads</strong> section, then use:</p>
           <pre class="help-code">#image("photo.png", width: 80%)</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>4. Export PDF</h4>
           <p>Click the <strong>Download</strong> button to save your PDF.</p>
         </div>
       </div>
-      
+
       <div class="help-tab-content" id="tab-syntax">
         <h3>📝 Basic Syntax</h3>
-        
+
         <div class="help-section">
           <h4>Headings</h4>
           <pre class="help-code">= Level 1 Heading
 == Level 2 Heading
 === Level 3 Heading</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Text Formatting</h4>
           <pre class="help-code">*Bold text*
@@ -2712,7 +2758,7 @@ _Italic text_
 #strike[strikethrough]
 #underline[underlined]</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Lists</h4>
           <pre class="help-code">- Bullet item 1
@@ -2721,7 +2767,7 @@ _Italic text_
 + Numbered item 1
 + Numbered item 2</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Math</h4>
           <pre class="help-code">Inline: $E = m c^2$
@@ -2729,7 +2775,7 @@ _Italic text_
 Display:
 $ integral_0^infinity e^(-x^2) dif x $</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Tables</h4>
           <pre class="help-code">#table(
@@ -2738,7 +2784,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
   [1], [2], [3],
 )</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Images & Figures</h4>
           <pre class="help-code">#figure(
@@ -2746,7 +2792,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
   caption: [My caption]
 )</pre>
         </div>
-        
+
         <div class="help-section">
           <h4>Page Setup</h4>
           <pre class="help-code">#set page(paper: "a4", margin: 2cm)
@@ -2754,7 +2800,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
 #set par(justify: true)</pre>
         </div>
       </div>
-      
+
       <div class="help-tab-content" id="tab-shortcuts">
         <h3>⌨️ Keyboard Shortcuts</h3>
         <div class="shortcuts-grid">
@@ -2764,7 +2810,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>E</kbd> <span>Export PDF</span></div>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> <span>Recompile</span></div>
           </div>
-          
+
           <div class="shortcut-group">
             <h4>Editor</h4>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>F</kbd> <span>Find</span></div>
@@ -2772,7 +2818,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>/</kbd> <span>Comment</span></div>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>Space</kbd> <span>Autocomplete</span></div>
           </div>
-          
+
           <div class="shortcut-group">
             <h4>View</h4>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>B</kbd> <span>Toggle sidebar</span></div>
@@ -2780,7 +2826,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>-</kbd> <span>Zoom out</span></div>
             <div class="shortcut"><kbd>Ctrl</kbd>+<kbd>0</kbd> <span>Reset zoom</span></div>
           </div>
-          
+
           <div class="shortcut-group">
             <h4>Other</h4>
             <div class="shortcut"><kbd>F1</kbd> <span>Help</span></div>
@@ -2788,7 +2834,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
           </div>
         </div>
       </div>
-      
+
       <div class="help-tab-content" id="tab-resources">
         <h3>📚 Resources</h3>
         <div class="help-links">
@@ -2814,7 +2860,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
             ${icons.externalLink} Discord Community
           </a>
         </div>
-        
+
         <h3 style="margin-top: 1.5em;">💡 Tips</h3>
         <ul class="help-tips">
           <li>Press <kbd>Ctrl</kbd>+<kbd>Space</kbd> to see autocomplete suggestions</li>
@@ -2822,7 +2868,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
           <li>Use the Share button to create a link to your document</li>
           <li>The app works offline after the first load!</li>
         </ul>
-        
+
         <div class="restart-tutorial-section">
           <button class="btn restart-tutorial-btn" id="restart-tutorial-btn">
             🎓 Restart Welcome Tour
@@ -2833,7 +2879,7 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
   `;
 
   showModal("Help & Tutorial", content, "large");
-  
+
   // Setup tab switching
   setTimeout(() => {
     document.querySelectorAll('.help-tab').forEach(tab => {
@@ -2841,13 +2887,13 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
         // Remove active from all tabs and contents
         document.querySelectorAll('.help-tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.help-tab-content').forEach(c => c.classList.remove('active'));
-        
+
         // Add active to clicked tab and corresponding content
         tab.classList.add('active');
         document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
       });
     });
-    
+
     // Restart tutorial button
     const restartBtn = document.getElementById('restart-tutorial-btn');
     if (restartBtn) {
@@ -2951,7 +2997,7 @@ function createTutorialOverlay() {
   if (tutorialOverlay) {
     tutorialOverlay.remove();
   }
-  
+
   tutorialOverlay = document.createElement('div');
   tutorialOverlay.className = 'tutorial-overlay';
   tutorialOverlay.innerHTML = `
@@ -2972,24 +3018,24 @@ function createTutorialOverlay() {
       </div>
     </div>
   `;
-  
+
   document.body.appendChild(tutorialOverlay);
-  
+
   // Event listeners
   tutorialOverlay.querySelector('.tutorial-skip').addEventListener('click', endTutorial);
   tutorialOverlay.querySelector('.tutorial-prev').addEventListener('click', () => navigateTutorial(-1));
   tutorialOverlay.querySelector('.tutorial-next').addEventListener('click', () => navigateTutorial(1));
-  
+
   // Close on backdrop click
   tutorialOverlay.querySelector('.tutorial-backdrop').addEventListener('click', endTutorial);
-  
+
   // Keyboard navigation
   document.addEventListener('keydown', handleTutorialKeydown);
 }
 
 function handleTutorialKeydown(e) {
   if (!tutorialOverlay) return;
-  
+
   if (e.key === 'Escape') {
     endTutorial();
   } else if (e.key === 'ArrowRight' || e.key === 'Enter') {
@@ -3001,7 +3047,7 @@ function handleTutorialKeydown(e) {
 
 function showTutorialStep(stepIndex) {
   if (!tutorialOverlay || stepIndex < 0 || stepIndex >= tutorialSteps.length) return;
-  
+
   const step = tutorialSteps[stepIndex];
   const tooltip = tutorialOverlay.querySelector('.tutorial-tooltip');
   const highlight = tutorialOverlay.querySelector('.tutorial-highlight');
@@ -3010,35 +3056,35 @@ function showTutorialStep(stepIndex) {
   const prevBtn = tutorialOverlay.querySelector('.tutorial-prev');
   const nextBtn = tutorialOverlay.querySelector('.tutorial-next');
   const stepIndicator = tutorialOverlay.querySelector('.tutorial-step-indicator');
-  
+
   // Update content
   title.textContent = step.title;
   content.textContent = step.content;
-  
+
   // Update progress indicator
   stepIndicator.textContent = `${stepIndex + 1} of ${tutorialSteps.length}`;
-  
+
   // Update navigation buttons
   prevBtn.style.visibility = stepIndex === 0 ? 'hidden' : 'visible';
   nextBtn.textContent = stepIndex === tutorialSteps.length - 1 ? "Let's Go! 🚀" : 'Next →';
-  
+
   // Position tooltip and highlight
   if (step.target) {
     const targetEl = document.querySelector(step.target);
     if (targetEl) {
       const rect = targetEl.getBoundingClientRect();
-      
+
       // Show and position highlight
       highlight.style.display = 'block';
       highlight.style.top = `${rect.top - 4}px`;
       highlight.style.left = `${rect.left - 4}px`;
       highlight.style.width = `${rect.width + 8}px`;
       highlight.style.height = `${rect.height + 8}px`;
-      
+
       // Position tooltip based on position preference
       tooltip.className = 'tutorial-tooltip';
       tooltip.classList.add(`position-${step.position}`);
-      
+
       positionTooltip(tooltip, rect, step.position);
     } else {
       // Target not found, center the tooltip
@@ -3052,7 +3098,7 @@ function showTutorialStep(stepIndex) {
     tooltip.className = 'tutorial-tooltip position-center';
     centerTooltip(tooltip);
   }
-  
+
   // Add entrance animation
   tooltip.classList.add('animate');
   setTimeout(() => tooltip.classList.remove('animate'), 300);
@@ -3062,9 +3108,9 @@ function positionTooltip(tooltip, targetRect, position) {
   const tooltipRect = tooltip.getBoundingClientRect();
   const padding = 16;
   const arrowOffset = 12;
-  
+
   let top, left;
-  
+
   switch (position) {
     case 'top':
       top = targetRect.top - tooltipRect.height - padding - arrowOffset;
@@ -3086,12 +3132,12 @@ function positionTooltip(tooltip, targetRect, position) {
       centerTooltip(tooltip);
       return;
   }
-  
+
   // Keep tooltip within viewport
   const viewportPadding = 20;
   top = Math.max(viewportPadding, Math.min(top, window.innerHeight - tooltipRect.height - viewportPadding));
   left = Math.max(viewportPadding, Math.min(left, window.innerWidth - tooltipRect.width - viewportPadding));
-  
+
   tooltip.style.top = `${top}px`;
   tooltip.style.left = `${left}px`;
   tooltip.style.transform = 'none';
@@ -3105,12 +3151,12 @@ function centerTooltip(tooltip) {
 
 function navigateTutorial(direction) {
   const newStep = currentTutorialStep + direction;
-  
+
   if (newStep >= tutorialSteps.length) {
     endTutorial();
     return;
   }
-  
+
   if (newStep >= 0 && newStep < tutorialSteps.length) {
     currentTutorialStep = newStep;
     showTutorialStep(currentTutorialStep);
@@ -3125,10 +3171,10 @@ function endTutorial() {
       tutorialOverlay = null;
     }, 300);
   }
-  
+
   document.removeEventListener('keydown', handleTutorialKeydown);
   localStorage.setItem('tutorialCompleted', 'true');
-  
+
   showToast("Tutorial completed! Click Help (?) anytime for more info.");
 }
 
@@ -3149,61 +3195,61 @@ function setupKeyboardShortcuts() {
       autoSave();
       showToast("Document saved");
     }
-    
+
     // Ctrl/Cmd + B: Toggle sidebar
     if ((e.ctrlKey || e.metaKey) && e.key === "b") {
       e.preventDefault();
       toggleSidebar();
     }
-    
+
     // Ctrl/Cmd + E: Export
     if ((e.ctrlKey || e.metaKey) && e.key === "e") {
       e.preventDefault();
       exportPDF();
     }
-    
+
     // Ctrl/Cmd + +: Zoom in
     if ((e.ctrlKey || e.metaKey) && (e.key === "+" || e.key === "=")) {
       e.preventDefault();
       zoomIn();
     }
-    
+
     // Ctrl/Cmd + -: Zoom out
     if ((e.ctrlKey || e.metaKey) && e.key === "-") {
       e.preventDefault();
       zoomOut();
     }
-    
+
     // Ctrl/Cmd + 0: Reset zoom
     if ((e.ctrlKey || e.metaKey) && e.key === "0") {
       e.preventDefault();
       resetZoom();
     }
-    
+
     // F1: Help
     if (e.key === "F1") {
       e.preventDefault();
       showHelpModal();
     }
-    
+
     // Escape: Close modal
     if (e.key === "Escape") {
       closeModal();
       closeAllDropdowns();
     }
-    
+
     // Ctrl/Cmd + Enter: Recompile
     if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
       e.preventDefault();
       manualRecompile();
     }
-    
+
     // Ctrl/Cmd + F: Find (only intercept in visual mode, Monaco handles code mode)
     if ((e.ctrlKey || e.metaKey) && e.key === "f" && editorMode === 'visual') {
       e.preventDefault();
       openFind();
     }
-    
+
     // Ctrl/Cmd + H: Find and Replace
     if ((e.ctrlKey || e.metaKey) && e.key === "h") {
       e.preventDefault();
@@ -3232,7 +3278,7 @@ async function handleFileUpload(event) {
 
       const fileType = getFileType(file.name);
       console.log(`[Upload] File type detected: ${fileType}`);
-      
+
       await saveFile(path, buffer, fileType, DOCUMENT_ID);
 
       currentFiles.set(path, new Uint8Array(buffer));
@@ -3256,7 +3302,7 @@ async function handleFileUpload(event) {
 function setupUploadsDragDrop() {
   const uploadsList = document.getElementById("uploads-list");
   if (!uploadsList) return;
-  
+
   // Prevent default drag behaviors
   ["dragenter", "dragover", "dragleave", "drop"].forEach(eventName => {
     uploadsList.addEventListener(eventName, (e) => {
@@ -3264,20 +3310,20 @@ function setupUploadsDragDrop() {
       e.stopPropagation();
     }, false);
   });
-  
+
   // Highlight drop zone
   ["dragenter", "dragover"].forEach(eventName => {
     uploadsList.addEventListener(eventName, () => {
       uploadsList.classList.add("drag-over");
     }, false);
   });
-  
+
   ["dragleave", "drop"].forEach(eventName => {
     uploadsList.addEventListener(eventName, () => {
       uploadsList.classList.remove("drag-over");
     }, false);
   });
-  
+
   // Handle dropped files
   uploadsList.addEventListener("drop", (e) => {
     const files = e.dataTransfer.files;
@@ -3315,18 +3361,21 @@ async function loadFilesIntoVFS() {
 async function preloadSampleAssets() {
   const sampleAssets = [
     { path: "elsevier_logo_wide.png", url: "/assets/elsevier_logo_wide.png" },
-    { path: "s_NA103569.jpg", url: "/assets/s_NA103569.jpg" },
+    { path: "0.png", url: "/assets/0.png" },
+    { path: "1.png", url: "/assets/1.png" },
+    { path: "2.jpg", url: "/assets/2.jpg" },
+    { path: "3.jpg", url: "/assets/3.jpg" },
   ];
-  
+
   console.log(`[Preload] Loading ${sampleAssets.length} sample assets...`);
-  
+
   for (const asset of sampleAssets) {
     // Skip if already loaded
     if (currentFiles.has(asset.path)) {
       console.log(`[Preload] Skipping ${asset.path} (already loaded)`);
       continue;
     }
-    
+
     try {
       console.log(`[Preload] Fetching ${asset.url}...`);
       const response = await fetch(asset.url);
@@ -3341,7 +3390,7 @@ async function preloadSampleAssets() {
       console.warn(`[Preload] Error loading ${asset.path}:`, e);
     }
   }
-  
+
   // Update the uploads list to show preloaded assets
   updateUploadsList();
 }
@@ -3406,16 +3455,16 @@ async function handleFontUpload(event) {
     try {
       const buffer = await fileToArrayBuffer(file);
       const path = `fonts/${file.name}`;
-      
+
       await saveFile(path, buffer, 'font', 'global');
-      
+
       // Add to loaded fonts
       loadedFonts.push({
         name: file.name,
         path: path,
         data: new Uint8Array(buffer)
       });
-      
+
       showToast(`Font loaded: ${file.name}`);
     } catch (e) {
       console.error("Font upload failed:", e);
@@ -3424,13 +3473,13 @@ async function handleFontUpload(event) {
   }
 
   updateFontsList();
-  
+
   // Notify compiler worker about new fonts
   sendFontsToWorker();
-  
+
   // Recompile to use new fonts
   compile(editor.getValue());
-  
+
   event.target.value = "";
 }
 
@@ -3444,9 +3493,9 @@ async function loadSavedFonts() {
         path: f.path,
         data: new Uint8Array(f.data)
       }));
-    
+
     updateFontsList();
-    
+
     if (loadedFonts.length > 0) {
       sendFontsToWorker();
     }
@@ -3457,12 +3506,12 @@ async function loadSavedFonts() {
 
 function sendFontsToWorker() {
   if (!compilerWorker) return;
-  
+
   console.log(`[Main] Sending ${loadedFonts.length} fonts to worker`);
-  
+
   // Update autocomplete with custom font names
   updateCustomFonts(loadedFonts.map(f => f.name));
-  
+
   // Create copies of font data to ensure proper transfer
   const fontData = loadedFonts.map(f => {
     // Create a copy of the Uint8Array
@@ -3473,7 +3522,7 @@ function sendFontsToWorker() {
       data: dataCopy
     };
   });
-  
+
   compilerWorker.postMessage({
     type: 'loadFonts',
     fonts: fontData
@@ -3534,7 +3583,7 @@ function showFontManager() {
         <p>Upload custom fonts to use in your Typst documents.</p>
         <p class="text-muted">Supported formats: TTF, OTF, WOFF, WOFF2</p>
       </div>
-      
+
       <div class="font-upload-zone" id="font-upload-zone">
         <input type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2" multiple hidden>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="48" height="48">
@@ -3544,11 +3593,11 @@ function showFontManager() {
         </svg>
         <p>Drop font files here or click to browse</p>
       </div>
-      
+
       <div class="loaded-fonts-section">
         <h4>Loaded Fonts (${loadedFonts.length})</h4>
         <div class="loaded-fonts-list" id="modal-fonts-list">
-          ${loadedFonts.length === 0 
+          ${loadedFonts.length === 0
             ? '<div class="empty-message">No custom fonts loaded</div>'
             : loadedFonts.map(font => `
                 <div class="font-list-item" data-path="${font.path}">
@@ -3563,7 +3612,7 @@ function showFontManager() {
           }
         </div>
       </div>
-      
+
       <div class="font-usage-info">
         <h4>Usage in Typst</h4>
         <pre><code>#set text(font: "Font Name")</code></pre>
@@ -3572,32 +3621,32 @@ function showFontManager() {
   `;
 
   showModal("Font Manager", content);
-  
+
   const uploadZone = document.getElementById("font-upload-zone");
   const fileInput = document.getElementById("font-file-input");
-  
+
   uploadZone.addEventListener("click", () => fileInput.click());
-  
+
   uploadZone.addEventListener("dragover", (e) => {
     e.preventDefault();
     uploadZone.classList.add("drag-over");
   });
-  
+
   uploadZone.addEventListener("dragleave", () => {
     uploadZone.classList.remove("drag-over");
   });
-  
+
   uploadZone.addEventListener("drop", (e) => {
     e.preventDefault();
     uploadZone.classList.remove("drag-over");
     const files = e.dataTransfer.files;
     handleFontUploadFromModal(files);
   });
-  
+
   fileInput.addEventListener("change", (e) => {
     handleFontUploadFromModal(e.target.files);
   });
-  
+
   // Add remove handlers in modal
   document.querySelectorAll(".btn-remove-font").forEach(btn => {
     btn.addEventListener("click", async () => {
@@ -3623,15 +3672,15 @@ async function handleFontUploadFromModal(files) {
     try {
       const buffer = await fileToArrayBuffer(file);
       const path = `fonts/${file.name}`;
-      
+
       await saveFile(path, buffer, 'font', 'global');
-      
+
       loadedFonts.push({
         name: file.name,
         path: path,
         data: new Uint8Array(buffer)
       });
-      
+
       showToast(`Font loaded: ${file.name}`);
     } catch (e) {
       showToast(`Failed to load: ${file.name}`);
@@ -3661,23 +3710,23 @@ function setupFontDropdown() {
   const dropdown = document.getElementById("font-dropdown");
   const btn = document.getElementById("btn-font-select");
   const menu = document.getElementById("font-menu");
-  
+
   if (!dropdown || !btn || !menu) return;
-  
+
   // Toggle dropdown
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     dropdown.classList.toggle("open");
     updateCustomFontOptions();
   });
-  
+
   // Close dropdown when clicking outside
   document.addEventListener("click", (e) => {
     if (!dropdown.contains(e.target)) {
       dropdown.classList.remove("open");
     }
   });
-  
+
   // Font option click handlers
   menu.addEventListener("click", (e) => {
     const option = e.target.closest(".font-option");
@@ -3687,7 +3736,7 @@ function setupFontDropdown() {
       dropdown.classList.remove("open");
     }
   });
-  
+
   // Inline upload button
   const uploadBtn = document.getElementById("btn-font-upload-inline");
   if (uploadBtn) {
@@ -3702,12 +3751,12 @@ function setupFontDropdown() {
 function updateCustomFontOptions() {
   const container = document.getElementById("custom-font-options");
   if (!container) return;
-  
+
   if (loadedFonts.length === 0) {
     container.innerHTML = '<div class="font-option" style="color: var(--text-muted); font-style: italic;">No custom fonts</div>';
     return;
   }
-  
+
   container.innerHTML = loadedFonts.map(font => {
     const fontName = font.name.replace(/\.[^/.]+$/, ''); // Remove extension
     const isSelected = currentSelectedFont === fontName;
@@ -3717,31 +3766,31 @@ function updateCustomFontOptions() {
 
 function selectFont(fontName) {
   currentSelectedFont = fontName;
-  
+
   // Update display
   const fontNameDisplay = document.getElementById("current-font");
   if (fontNameDisplay) {
     fontNameDisplay.textContent = fontName || "Default";
   }
-  
+
   // Insert or update font setting in the document
   applyFontToDocument(fontName);
-  
+
   showToast(fontName ? `Font: ${fontName}` : "Font: Default");
 }
 
 function applyFontToDocument(fontName) {
   if (!editor) return;
-  
+
   const content = editor.getValue();
   const fontDirective = fontName ? `#set text(font: "${fontName}")` : '';
-  
+
   // Check if there's already a font directive at the start
   const fontRegex = /^#set text\(font: "[^"]*"\)\n?/;
-  
+
   if (fontRegex.test(content)) {
     // Replace existing font directive
-    const newContent = fontName 
+    const newContent = fontName
       ? content.replace(fontRegex, fontDirective + '\n')
       : content.replace(fontRegex, '');
     editor.setValue(newContent);
@@ -3749,7 +3798,7 @@ function applyFontToDocument(fontName) {
     // Add font directive at the beginning
     editor.setValue(fontDirective + '\n' + content);
   }
-  
+
   // Trigger recompile
   if (autoCompile) {
     clearTimeout(compileTimer);
@@ -3820,7 +3869,7 @@ function exportPDF() {
       a.style.display = "none";
       document.body.appendChild(a);
       a.click();
-      
+
       // Cleanup after a short delay
       setTimeout(() => {
         document.body.removeChild(a);
@@ -3850,10 +3899,10 @@ function exportPDF() {
 function showModal(title, content, size = "default") {
   const overlay = document.getElementById("modal-overlay");
   const modal = document.getElementById("modal");
-  
+
   modal.querySelector(".modal-title").textContent = title;
   modal.querySelector(".modal-content").innerHTML = content;
-  
+
   // Set modal size
   modal.classList.remove("modal-large", "modal-small");
   if (size === "large") {
@@ -3861,7 +3910,7 @@ function showModal(title, content, size = "default") {
   } else if (size === "small") {
     modal.classList.add("modal-small");
   }
-  
+
   overlay.style.display = "flex";
 }
 
@@ -3930,12 +3979,12 @@ function addStyles() {
       --warning: #f59e0b;
       --error: #ef4444;
     }
-    
+
     /* Light theme error highlighting */
     [data-theme="light"] .editor-line-error {
       background: rgba(220, 38, 38, 0.12) !important;
     }
-    
+
     [data-theme="light"] .editor-line-warning {
       background: rgba(217, 119, 6, 0.12) !important;
     }
@@ -4381,7 +4430,7 @@ function addStyles() {
     .file-tree, .uploads-list, .fonts-list {
       padding: 4px 12px;
     }
-    
+
     .uploads-list, .fonts-list {
       min-height: 40px;
       transition: all 0.2s;
@@ -4428,6 +4477,128 @@ function addStyles() {
       border-radius: 50%;
     }
 
+    /* Sidebar Collapse Button */
+    .sidebar-collapse-btn {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-secondary);
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .sidebar-collapse-btn:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    .sidebar-collapse-btn .collapse-icon {
+      width: 14px;
+      height: 14px;
+      transition: transform 0.2s;
+    }
+
+    /* Collapsed Sidebar State */
+    .sidebar.collapsed {
+      width: 48px !important;
+      min-width: 48px;
+    }
+
+    .sidebar.collapsed .sidebar-content {
+      padding: 8px 4px;
+    }
+
+    .sidebar.collapsed .sidebar-section-header {
+      justify-content: center;
+      padding: 8px;
+    }
+
+    .sidebar.collapsed .section-title {
+      justify-content: center;
+    }
+
+    .sidebar.collapsed .section-label {
+      display: none;
+    }
+
+    .sidebar.collapsed .section-chevron {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-actions {
+      display: none;
+    }
+
+    .sidebar.collapsed .file-tree,
+    .sidebar.collapsed .uploads-list,
+    .sidebar.collapsed .fonts-list {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-footer {
+      padding: 8px;
+    }
+
+    .sidebar.collapsed .sidebar-collapse-btn {
+      padding: 8px;
+      border: none;
+    }
+
+    .sidebar.collapsed .sidebar-collapse-btn .collapse-text {
+      display: none;
+    }
+
+    .sidebar.collapsed .sidebar-collapse-btn .collapse-icon {
+      transform: rotate(180deg);
+    }
+
+    .sidebar.collapsed .section-icon {
+      margin: 0;
+    }
+
+    .sidebar.collapsed .section-icon svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Tooltip for collapsed icons */
+    .sidebar.collapsed .sidebar-section-header {
+      position: relative;
+    }
+
+    .sidebar.collapsed .sidebar-section-header::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      margin-left: 8px;
+      padding: 6px 10px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      font-size: 12px;
+      color: var(--text-primary);
+      white-space: nowrap;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.15s, visibility 0.15s;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .sidebar.collapsed .sidebar-section-header:hover::after {
+      opacity: 1;
+      visibility: visible;
+    }
+
     /* Legacy support */
     .sidebar-header {
       display: flex;
@@ -4454,12 +4625,12 @@ function addStyles() {
       height: 12px;
       margin-right: 4px;
     }
-    
+
     .uploads-list {
       min-height: 50px;
       transition: all 0.2s;
     }
-    
+
     .uploads-list.drag-over {
       background: var(--accent-muted);
       border: 2px dashed var(--accent);
@@ -5802,12 +5973,12 @@ function addStyles() {
       flex-direction: column;
       box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
     }
-    
+
     .modal.modal-large {
       max-width: 800px;
       max-height: 85vh;
     }
-    
+
     .modal.modal-small {
       max-width: 400px;
     }
@@ -5919,7 +6090,7 @@ function addStyles() {
     .help-content {
       min-height: 400px;
     }
-    
+
     .help-tabs {
       display: flex;
       gap: 4px;
@@ -5927,7 +6098,7 @@ function addStyles() {
       border-bottom: 1px solid var(--border-color);
       padding-bottom: 8px;
     }
-    
+
     .help-tab {
       padding: 8px 16px;
       background: transparent;
@@ -5939,25 +6110,25 @@ function addStyles() {
       border-radius: 4px 4px 0 0;
       transition: all 0.15s;
     }
-    
+
     .help-tab:hover {
       color: var(--text-primary);
       background: var(--bg-hover);
     }
-    
+
     .help-tab.active {
       color: var(--accent);
       background: var(--accent-muted);
     }
-    
+
     .help-tab-content {
       display: none;
     }
-    
+
     .help-tab-content.active {
       display: block;
     }
-    
+
     .help-content h3 {
       font-size: 15px;
       font-weight: 600;
@@ -5968,28 +6139,28 @@ function addStyles() {
     .help-content h3:not(:first-child) {
       margin-top: 20px;
     }
-    
+
     .help-content h4 {
       font-size: 13px;
       font-weight: 600;
       margin-bottom: 8px;
       color: var(--text-primary);
     }
-    
+
     .help-content p {
       font-size: 13px;
       color: var(--text-secondary);
       margin-bottom: 8px;
       line-height: 1.5;
     }
-    
+
     .help-section {
       margin-bottom: 16px;
       padding: 12px;
       background: var(--bg-tertiary);
       border-radius: 6px;
     }
-    
+
     .help-code {
       font-family: "Fira Code", "Consolas", monospace;
       font-size: 12px;
@@ -6008,13 +6179,13 @@ function addStyles() {
       grid-template-columns: repeat(2, 1fr);
       gap: 16px;
     }
-    
+
     .shortcut-group {
       background: var(--bg-tertiary);
       border-radius: 6px;
       padding: 12px;
     }
-    
+
     .shortcut-group h4 {
       margin-bottom: 10px;
       font-size: 12px;
@@ -6031,7 +6202,7 @@ function addStyles() {
       color: var(--text-secondary);
       margin-bottom: 6px;
     }
-    
+
     .shortcut:last-child {
       margin-bottom: 0;
     }
@@ -6046,7 +6217,7 @@ function addStyles() {
       min-width: 20px;
       text-align: center;
     }
-    
+
     .shortcut span {
       flex: 1;
     }
@@ -6073,33 +6244,33 @@ function addStyles() {
     .help-links a:hover {
       background: var(--bg-hover);
     }
-    
+
     .help-links a.tutorial-link {
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(168, 85, 247, 0.2));
       border: 1px solid var(--accent);
     }
-    
+
     .help-links a.tutorial-link:hover {
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.3), rgba(168, 85, 247, 0.3));
     }
-    
+
     .help-tips {
       list-style: none;
       padding: 0;
       margin: 0;
     }
-    
+
     .help-tips li {
       font-size: 13px;
       color: var(--text-secondary);
       padding: 8px 0;
       border-bottom: 1px solid var(--border-color);
     }
-    
+
     .help-tips li:last-child {
       border-bottom: none;
     }
-    
+
     .help-tips kbd {
       background: var(--bg-tertiary);
       border: 1px solid var(--border-color);
@@ -6107,13 +6278,13 @@ function addStyles() {
       padding: 2px 5px;
       font-size: 11px;
     }
-    
+
     .restart-tutorial-section {
       margin-top: 20px;
       padding-top: 16px;
       border-top: 1px solid var(--border-color);
     }
-    
+
     .restart-tutorial-btn {
       width: 100%;
       padding: 12px 16px;
@@ -6126,7 +6297,7 @@ function addStyles() {
       cursor: pointer;
       transition: all 0.2s;
     }
-    
+
     .restart-tutorial-btn:hover {
       background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(168, 85, 247, 0.25));
       transform: translateY(-1px);
@@ -6192,17 +6363,17 @@ function addStyles() {
       z-index: 10000;
       pointer-events: none;
     }
-    
+
     .tutorial-overlay.fade-out {
       animation: tutorialFadeOut 0.3s ease forwards;
     }
-    
+
     @keyframes tutorialFadeOut {
       to {
         opacity: 0;
       }
     }
-    
+
     .tutorial-backdrop {
       position: absolute;
       top: 0;
@@ -6212,7 +6383,7 @@ function addStyles() {
       background: rgba(0, 0, 0, 0.5);
       pointer-events: auto;
     }
-    
+
     .tutorial-highlight {
       position: fixed;
       border-radius: 8px;
@@ -6223,7 +6394,7 @@ function addStyles() {
       border: 2px solid var(--accent);
       background: transparent;
     }
-    
+
     .tutorial-tooltip {
       position: fixed;
       background: linear-gradient(145deg, var(--bg-secondary), var(--bg-tertiary));
@@ -6236,11 +6407,11 @@ function addStyles() {
       pointer-events: auto;
       box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5), 0 0 40px rgba(99, 102, 241, 0.2);
     }
-    
+
     .tutorial-tooltip.animate {
       animation: tooltipPop 0.3s ease;
     }
-    
+
     @keyframes tooltipPop {
       0% {
         opacity: 0;
@@ -6251,17 +6422,17 @@ function addStyles() {
         transform: scale(1) translate(-50%, -50%);
       }
     }
-    
+
     .tutorial-tooltip.position-center {
       top: 50%;
       left: 50%;
       transform: translate(-50%, -50%);
     }
-    
+
     .tutorial-tooltip.position-center.animate {
       animation: tooltipPopCenter 0.3s ease;
     }
-    
+
     @keyframes tooltipPopCenter {
       0% {
         opacity: 0;
@@ -6272,7 +6443,7 @@ function addStyles() {
         transform: translate(-50%, -50%);
       }
     }
-    
+
     /* Tooltip arrows */
     .tutorial-tooltip.position-top::after,
     .tutorial-tooltip.position-bottom::after,
@@ -6286,7 +6457,7 @@ function addStyles() {
       border: 1px solid var(--accent);
       transform: rotate(45deg);
     }
-    
+
     .tutorial-tooltip.position-bottom::after {
       top: -9px;
       left: 50%;
@@ -6294,7 +6465,7 @@ function addStyles() {
       border-right: none;
       border-bottom: none;
     }
-    
+
     .tutorial-tooltip.position-top::after {
       bottom: -9px;
       left: 50%;
@@ -6302,7 +6473,7 @@ function addStyles() {
       border-left: none;
       border-top: none;
     }
-    
+
     .tutorial-tooltip.position-right::after {
       left: -9px;
       top: 50%;
@@ -6310,7 +6481,7 @@ function addStyles() {
       border-right: none;
       border-top: none;
     }
-    
+
     .tutorial-tooltip.position-left::after {
       right: -9px;
       top: 50%;
@@ -6318,11 +6489,11 @@ function addStyles() {
       border-left: none;
       border-bottom: none;
     }
-    
+
     .tutorial-progress {
       margin-bottom: 12px;
     }
-    
+
     .tutorial-step-indicator {
       font-size: 12px;
       color: var(--accent);
@@ -6331,7 +6502,7 @@ function addStyles() {
       padding: 4px 10px;
       border-radius: 20px;
     }
-    
+
     .tutorial-title {
       font-size: 20px;
       font-weight: 700;
@@ -6339,26 +6510,26 @@ function addStyles() {
       color: var(--text-primary);
       line-height: 1.3;
     }
-    
+
     .tutorial-content {
       font-size: 14px;
       color: var(--text-secondary);
       margin: 0 0 20px 0;
       line-height: 1.6;
     }
-    
+
     .tutorial-actions {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 12px;
     }
-    
+
     .tutorial-nav {
       display: flex;
       gap: 8px;
     }
-    
+
     .tutorial-btn {
       padding: 10px 18px;
       border-radius: 8px;
@@ -6368,41 +6539,41 @@ function addStyles() {
       transition: all 0.2s ease;
       border: none;
     }
-    
+
     .tutorial-btn.tutorial-skip {
       background: transparent;
       color: var(--text-muted);
       padding: 10px 12px;
     }
-    
+
     .tutorial-btn.tutorial-skip:hover {
       color: var(--text-secondary);
       background: var(--bg-hover);
     }
-    
+
     .tutorial-btn.tutorial-prev {
       background: var(--bg-tertiary);
       color: var(--text-secondary);
       border: 1px solid var(--border-color);
     }
-    
+
     .tutorial-btn.tutorial-prev:hover {
       background: var(--bg-hover);
       color: var(--text-primary);
     }
-    
+
     .tutorial-btn.tutorial-next {
       background: var(--bg-tertiary);
       color: var(--text-primary);
       border: 1px solid var(--border-color);
     }
-    
+
     .tutorial-btn.tutorial-next.primary {
       background: linear-gradient(135deg, var(--accent), #8b5cf6);
       color: white;
       border: none;
     }
-    
+
     .tutorial-btn.tutorial-next.primary:hover {
       transform: translateY(-1px);
       box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
@@ -6441,12 +6612,12 @@ function addStyles() {
       background: rgba(239, 68, 68, 0.15) !important;
       border-left: 3px solid #ef4444 !important;
     }
-    
+
     .editor-line-warning {
       background: rgba(245, 158, 11, 0.15) !important;
       border-left: 3px solid #f59e0b !important;
     }
-    
+
     .editor-glyph-error {
       background: #ef4444;
       border-radius: 50%;
@@ -6454,7 +6625,7 @@ function addStyles() {
       width: 8px !important;
       height: 8px !important;
     }
-    
+
     .editor-glyph-warning {
       background: #f59e0b;
       border-radius: 50%;
@@ -6715,7 +6886,7 @@ function addStyles() {
       flex: 1;
       min-height: 0;
     }
-    
+
     .editor-panel:has(.error-window.visible) .visual-editor-container {
       flex: 1;
       min-height: 0;

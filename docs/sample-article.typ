@@ -84,38 +84,38 @@
 
   show heading.where(level: 2): it => {
     set text(size: 11pt, weight: "bold")
-    block(above: 1.2em, below: 0.6em)[#it]
+    block(above: 1em, below: 0.3em)[#it]
   }
 
   line(length: 85%, stroke: 0.1pt)
   grid(
-  columns: (20%, 66%, 20%),
-  gutter: 0em,
-  row-gutter: 0pt,
-  // Left column
-  [
-    #image("elsevier_logo_wide.png", width: 70%)
-  ],
-  // Middle column with background color
-  box(
-    fill: luma(245),
-    inset: (left: 56pt, top: 5pt, bottom: 5pt, right: 56pt),          // Add padding so text doesn't touch edges
-    radius: 0pt          // Optional: rounded corners
-  )[
-    #align(center)[
-      #text("Contents lists available at ")
-      #text(fill: blue)[ScienceDirect]
-      #v(0.3cm)
-      #text(size: 14pt, weight: "bold")[#journal]
-      #v(0.5em)
-      #link(journal-url)[#journal-url.split("//").at(1)]
+    columns: (20%, 66%, 20%),
+    gutter: 0em,
+    row-gutter: 0pt,
+    // Left column
+    [
+      #image("0.png", width: 60%)
+    ],
+    // Middle column with background color
+    box(
+      fill: luma(245),
+      inset: (left: 50pt, top: 5pt, bottom: 5pt, right: 50pt),          // Add padding so text doesn't touch edges
+      radius: 0pt    // Optional: rounded corners
+    )[
+      #align(center)[
+        #text("Contents lists available at ")
+        #text(fill: blue)[ScienceDirect]
+        #v(0.3cm)
+        #text(size: 14pt, weight: "bold")[#journal]
+        #v(0.3em)
+        #link(journal-url)[#journal-url.split("//").at(1)]
+      ]
+    ],
+    // Right column
+    [
+      #image("1.png", width: 60%)
     ]
-  ],
-  // Right column
-  [
-    #image("s_NA103569.jpg", width: 70%)
-  ]
-)
+  )
 
   // Journal header
 
@@ -295,9 +295,12 @@
 #lorem(200)
 
 #figure(
-  rect(width: 100%, height: 150pt, fill: luma(230))[
-    #align(center + horizon)[Figure 1 placeholder: Add your figure here using #raw("#image(\"path/to/image.png\")")]
-  ],
+  placement: bottom,
+  scope: "parent",
+  // rect(width: 100%, height: 150pt, fill: luma(230))[
+  //   #align(center + horizon)[Figure 1 placeholder: Add your figure here using #raw("#image(\"path/to/image.png\")")]
+  // ],
+  image("2.jpg", width: 90%),
   caption: [Description of your figure. Explain what the figure shows and its relevance to your findings.],
 ) <fig1>
 
@@ -344,17 +347,19 @@ This work was supported by [Funding Agency], [Country], under grant [Grant Numbe
 The authors declare that they have no known competing financial interests or personal relationships that could have appeared to influence the work reported in this paper.
 
 = Acknowledgments
-#lorem(200)
+#lorem(500)
 The authors thank [acknowledgments for institutions, colleagues, technical support, etc.].
 
 // ============================================================
 // TABLES - Full width section
 // ============================================================
 // #set page(columns: 1)
-
+#show figure.where(
+  kind: table
+): set figure.caption(position: top)
+#show figure: set block(breakable: true)
 #figure(
-  rotate(360deg)[
-  #table(
+  table(
     columns: (auto, 1fr, 1fr, 1fr, 1fr),
     inset: 6pt,
     align: left,
@@ -369,8 +374,9 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
     [3.], [Sample item three], [Value], [Unit], [Additional info],
     [4.], [Sample item four], [Value], [Unit], [Additional info],
     [5.], [Sample item five], [Value], [Unit], [Additional info],
+    [6.], [Sample item six], [Value], [Unit], [Additional info],
     table.hline(),
-  )],
+  ),
   caption: [Your table caption describing the data presented.],
 ) <tbl1>
 
@@ -378,7 +384,7 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
 // LONG TABLE - Spanning across columns with continuation markers
 // ============================================================
 
-// Long table with automatic continuation markers
+// Long table data
 #let long-table-data = (
   ([1], [Alpha amino acid], [Alanine], [Ala], [A], [Non-polar]),
   ([2], [Alpha amino acid], [Arginine], [Arg], [R], [Polar, basic]),
@@ -402,20 +408,52 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
   ([20], [Alpha amino acid], [Valine], [Val], [V], [Non-polar]),
   ([21], [Modified amino acid], [Selenocysteine], [Sec], [U], [Special]),
   ([22], [Modified amino acid], [Pyrrolysine], [Pyl], [O], [Special]),
+  ([23], [Alpha amino acid], [Threonine], [Thr], [T], [Polar, neutral]),
+  ([24], [Alpha amino acid], [Tryptophan], [Trp], [W], [Non-polar]),
+  ([25], [Alpha amino acid], [Tyrosine], [Tyr], [Y], [Polar, neutral]),
+  ([26], [Alpha amino acid], [Valine], [Val], [V], [Non-polar]),
+  ([27], [Modified amino acid], [Selenocysteine], [Sec], [U], [Special]),
+  ([28], [Modified amino acid], [Pyrrolysine], [Pyl], [O], [Special]),
+  ([29], [Alpha amino acid], [Threonine], [Thr], [T], [Polar, neutral]),
+  ([30], [Alpha amino acid], [Tryptophan], [Trp], [W], [Non-polar]),
+  ([31], [Alpha amino acid], [Tyrosine], [Tyr], [Y], [Polar, neutral]),
+  ([32], [Alpha amino acid], [Valine], [Val], [V], [Non-polar]),
+  ([33], [Modified amino acid], [Selenocysteine], [Sec], [U], [Special]),
+  ([34], [Modified amino acid], [Pyrrolysine], [Pyl], [O], [Special]),
+  ([35], [Alpha amino acid], [Threonine], [Thr], [T], [Polar, neutral]),
+  ([36], [Alpha amino acid], [Tryptophan], [Trp], [W], [Non-polar]),
+  ([37], [Alpha amino acid], [Tyrosine], [Tyr], [Y], [Polar, neutral]),
+  ([38], [Alpha amino acid], [Valine], [Val], [V], [Non-polar]),
+  ([39], [Modified amino acid], [Selenocysteine], [Sec], [U], [Special]),
+  ([40], [Modified amino acid], [Pyrrolysine], [Pyl], [O], [Special]),
 )
 
-// Table 2: Full-width long table (spans both columns)
+// Table 2: Full-width breakable table
+// Switch to single column for full-width table
+#set page(columns: 1)
+
+#let table2-header-count = state("table2-header", 0)
+#let table2-footer-count = state("table2-footer", 0)
+
+#show figure: set block(breakable: true)
 #figure(
-  placement: top,
-  scope: "parent",
   table(
     columns: (auto, 1fr, 1fr, auto, auto, 1fr),
     inset: 8pt,
     align: left,
     stroke: none,
 
-    // Header that repeats on each page break
+    // Header with automatic "(continued)" on breaks
     table.header(
+      table.cell(colspan: 6)[
+        #context {
+          let count = table2-header-count.get()
+          table2-header-count.update(c => c + 1)
+          if count > 0 {
+            align(right, text(style: "italic", size: 8pt)[(continued)])
+          }
+        }
+      ],
       table.hline(),
       [*No.*], [*Category*], [*Name*], [*3-Letter*], [*1-Letter*], [*Properties*],
       table.hline(),
@@ -424,66 +462,99 @@ The authors thank [acknowledgments for institutions, colleagues, technical suppo
     // Table data
     ..long-table-data.flatten(),
 
+    // Footer with "(to be continued)"
+    table.footer(
+      table.cell(colspan: 6)[
+        #context {
+          table2-footer-count.update(c => c + 1)
+          let footer-num = table2-footer-count.get()
+          let total-headers = table2-header-count.final()
+          if footer-num < total-headers {
+            align(right, text(style: "italic", size: 8pt)[(to be continued)])
+          }
+        }
+      ],
+    ),
+
     // Final row
     table.hline(),
   ),
-  caption: [Complete list of amino acids with their abbreviations and properties. This full-width table spans across both columns.],
+  caption: [Complete list of amino acids with their abbreviations and properties.],
 ) <tbl2>
 
-// Alternative approach: Manual column break with continuation text
-#v(1em)
-#text(weight: "bold")[Table 3: Manual Long Table Example]
-#v(0.5em)
+// Switch back to two columns
+#set page(columns: 2)
 
-// First part of table (Column 1)
-#block[
-  #table(
-    columns: (auto, 1fr, 1fr, 1fr),
-    inset: 5pt,
-    align: left,
-    stroke: 0.5pt,
+// Table 3: Long table with automatic continuation across columns
+#let table3-header-count = state("table3-header", 0)
+#let table3-footer-count = state("table3-footer", 0)
 
-    table.header(
-      [*ID*], [*Gene Name*], [*Chromosome*], [*Function*],
-    ),
+// Label to mark end of table for footer detection
+#let table3-end = <table3-end>
 
-    [1], [BRCA1], [17q21], [DNA repair],
-    [2], [BRCA2], [13q13], [DNA repair],
-    [3], [TP53], [17p13], [Tumor suppressor],
-    [4], [EGFR], [7p12], [Growth factor receptor],
-    [5], [KRAS], [12p12], [Signal transduction],
-    [6], [MYC], [8q24], [Transcription factor],
-    [7], [PTEN], [10q23], [Tumor suppressor],
-    [8], [APC], [5q22], [Tumor suppressor],
-  )
-  #align(right)[#text(style: "italic", size: 8pt)[(to be continued)]]
-]
+#show figure: set block(breakable: true)
+#figure(
+  {
+    table(
+      columns: (auto, 1fr, 1fr, 1fr),
+      inset: 5pt,
+      align: left,
+      stroke: none,
+      // row-gutter: (2.2pt, auto),
 
-#colbreak()
+      // Header with automatic "(continued)" on breaks
+      table.header(
+        table.cell(colspan: 4)[
+          #context {
+            let count = table3-header-count.get()
+            table3-header-count.update(c => c + 1)
+            if count > 0 {
+              align(left, text(style: "italic", size: 8pt)[(continued)])
+            }
+          }
+        ],
+        table.hline(),
+        [*ID*], [*Gene Name*], [*Chromosome*], [*Function*],
+      ),
+      table.hline(),
 
-// Second part of table (Column 2)
-#block[
-  #align(left)[#text(style: "italic", size: 8pt)[Table 3 (continued)]]
-  #table(
-    columns: (auto, 1fr, 1fr, 1fr),
-    inset: 5pt,
-    align: left,
-    stroke: 0.5pt,
+      // All data in one table - will break automatically across columns/pages
+      [1], [BRCA1], [17q21], [DNA repair],
+      [2], [BRCA2], [13q13], [DNA repair],
+      [3], [TP53], [17p13], [Tumor suppressor],
+      [4], [EGFR], [7p12], [Growth factor receptor],
+      [5], [KRAS], [12p12], [Signal transduction],
+      [6], [MYC], [8q24], [Transcription factor],
+      [7], [PTEN], [10q23], [Tumor suppressor],
+      [8], [APC], [5q22], [Tumor suppressor],
+      [9], [RB1], [13q14], [Tumor suppressor],
+      [10], [VHL], [3p25], [Tumor suppressor],
+      [11], [NF1], [17q11], [Tumor suppressor],
+      [12], [NF2], [22q12], [Tumor suppressor],
+      [13], [MLH1], [3p22], [DNA mismatch repair],
+      [14], [MSH2], [2p21], [DNA mismatch repair],
+      [15], [CDH1], [16q22], [Cell adhesion],
+      [16], [STK11], [19p13], [Serine/threonine kinase],
 
-    table.header(
-      [*ID*], [*Gene Name*], [*Chromosome*], [*Function*],
-    ),
-
-    [9], [RB1], [13q14], [Tumor suppressor],
-    [10], [VHL], [3p25], [Tumor suppressor],
-    [11], [NF1], [17q11], [Tumor suppressor],
-    [12], [NF2], [22q12], [Tumor suppressor],
-    [13], [MLH1], [3p22], [DNA mismatch repair],
-    [14], [MSH2], [2p21], [DNA mismatch repair],
-    [15], [CDH1], [16q22], [Cell adhesion],
-    [16], [STK11], [19p13], [Serine/threonine kinase],
-  )
-]
+      // Footer with "(to be continued)" - only shown at breaks, not at end
+      table.footer(
+        table.cell(colspan: 4)[
+          #context {
+            table3-footer-count.update(c => c + 1)
+            let footer-num = table3-footer-count.get()
+            let total-headers = table3-header-count.final() - 1
+            // Show "to be continued" only if more headers will follow (i.e., table continues)
+            if footer-num < total-headers {
+              align(right, text(style: "italic", size: 8pt)[(to be continued)])
+            }
+          }
+        ],
+      ),
+    )
+    [#metadata("table3-end") #table3-end]
+  },
+  caption: [Gene mutations associated with hereditary cancer syndromes.],
+) <tbl3>
 
 #v(1em)
 
