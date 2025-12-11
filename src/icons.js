@@ -239,6 +239,25 @@ export const icons = {
     <polyline points="13 17 18 12 13 7"></polyline>
     <polyline points="6 17 11 12 6 7"></polyline>
   </svg>`,
+
+  // Outline/List
+  outline: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="8" y1="6" x2="21" y2="6"></line>
+    <line x1="8" y1="12" x2="21" y2="12"></line>
+    <line x1="8" y1="18" x2="21" y2="18"></line>
+    <line x1="3" y1="6" x2="3.01" y2="6"></line>
+    <line x1="3" y1="12" x2="3.01" y2="12"></line>
+    <line x1="3" y1="18" x2="3.01" y2="18"></line>
+  </svg>`,
+
+  // Heading levels
+  heading: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M4 12h8"></path>
+    <path d="M4 18V6"></path>
+    <path d="M12 18V6"></path>
+    <path d="M17 12a2 2 0 0 1 2 2v2a2 2 0 0 1-4 0v-2a2 2 0 0 1 2-2z"></path>
+    <path d="M17 8h.01"></path>
+  </svg>`,
 };
 
 // Helper function to get icon with custom size and color
