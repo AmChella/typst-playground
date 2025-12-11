@@ -480,38 +480,81 @@ function renderOutline() {
   // Find minimum level for proper indentation
   const minLevel = Math.min(...outlineItems.map(h => h.level));
   
+  // Check if item has children (next item has higher level)
+  const hasChildren = (idx) => {
+    if (idx >= outlineItems.length - 1) return false;
+    return outlineItems[idx + 1].level > outlineItems[idx].level;
+  };
+  
   outlineList.innerHTML = outlineItems.map((item, index) => {
     const indentLevel = item.level - minLevel;
     const levelClass = `level-${item.level}`;
-    const indentStyle = `padding-left: ${8 + indentLevel * 12}px`;
-    
-    // Icon based on level
-    const levelIcon = item.level === 1 ? 
-      '<span class="outline-level">H1</span>' : 
-      item.level === 2 ? 
-      '<span class="outline-level">H2</span>' : 
-      `<span class="outline-level">H${item.level}</span>`;
+    const indentStyle = `padding-left: ${12 + indentLevel * 14}px`;
+    const hasKids = hasChildren(index);
     
     return `
-      <div class="outline-item ${levelClass}" 
+      <div class="outline-item ${levelClass} ${hasKids ? 'has-children' : ''}" 
            data-line="${item.line}" 
            data-index="${index}"
+           data-level="${item.level}"
            style="${indentStyle}"
            title="Line ${item.line}: ${escapeHtml(item.title)}">
-        ${levelIcon}
+        <span class="outline-toggle ${hasKids ? '' : 'hidden'}">▸</span>
         <span class="outline-title">${escapeHtml(item.title)}</span>
+        <span class="outline-active-icon">›</span>
       </div>
     `;
   }).join('');
   
   // Add click handlers
   outlineList.querySelectorAll('.outline-item').forEach((item, idx) => {
-    item.addEventListener('click', () => {
+    const toggle = item.querySelector('.outline-toggle');
+    const itemLevel = parseInt(item.dataset.level);
+    
+    // Toggle collapse/expand when clicking the toggle button
+    if (toggle && !toggle.classList.contains('hidden')) {
+      toggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        item.classList.toggle('collapsed');
+        
+        // Hide/show all children (items with higher level until same or lower level)
+        let sibling = item.nextElementSibling;
+        while (sibling) {
+          const siblingLevel = parseInt(sibling.dataset.level);
+          if (siblingLevel <= itemLevel) break;
+          
+          if (item.classList.contains('collapsed')) {
+            sibling.classList.add('hidden-child');
+          } else {
+            sibling.classList.remove('hidden-child');
+            // If this sibling is also collapsed, skip its children
+            if (sibling.classList.contains('collapsed')) {
+              let child = sibling.nextElementSibling;
+              while (child && parseInt(child.dataset.level) > siblingLevel) {
+                child = child.nextElementSibling;
+              }
+              sibling = child;
+              continue;
+            }
+          }
+          sibling = sibling.nextElementSibling;
+        }
+      });
+    }
+    
+    // Navigate when clicking the item (not toggle)
+    item.addEventListener('click', (e) => {
+      if (e.target.classList.contains('outline-toggle')) return;
+      
       const line = parseInt(item.dataset.line);
       const index = parseInt(item.dataset.index);
       const headingTitle = outlineItems[index]?.title || '';
       
       if (!isNaN(line) && editor) {
+        // Remove active from all items, add to clicked
+        outlineList.querySelectorAll('.outline-item').forEach(i => i.classList.remove('active'));
+        item.classList.add('active');
+        
         // Navigate to the heading in editor
         editor.revealLineInCenter(line);
         editor.setPosition({ lineNumber: line, column: 1 });
@@ -519,10 +562,6 @@ function renderOutline() {
         
         // Scroll PDF to the matching section
         scrollPdfToHeading(headingTitle, line, index);
-        
-        // Flash highlight effect
-        item.classList.add('flash');
-        setTimeout(() => item.classList.remove('flash'), 300);
       }
     });
   });
@@ -605,7 +644,7 @@ function scrollToPagePosition(pageNum, topPosition) {
         
         // Calculate target scroll position
         const pageTop = pageWrapper.offsetTop;
-        const targetScroll = pageTop + Math.max(0, offsetFromTop) - 60; // 60px padding to clear preview header
+        const targetScroll = pageTop + Math.max(0, offsetFromTop) - 80; // 80px padding to clear preview header
         
         previewContent.scrollTo({
           top: targetScroll,
@@ -5153,9 +5192,12 @@ function addStyles() {
 
     /* Outline Section */
     .outline-list {
-      padding: 4px 8px;
+      padding: 6px 6px 6px 8px;
       max-height: 300px;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
     }
     
     .outline-list.collapsed,
@@ -5168,14 +5210,19 @@ function addStyles() {
     .outline-item {
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 4px;
       padding: 6px 8px;
       border-radius: 6px;
       cursor: pointer;
       color: var(--text-secondary);
-      transition: all 0.15s;
+      transition: all 0.15s ease;
       font-size: 12px;
       line-height: 1.4;
+      background: transparent;
+    }
+    
+    .outline-item.hidden-child {
+      display: none;
     }
     
     .outline-item:hover {
@@ -5183,8 +5230,9 @@ function addStyles() {
       color: var(--text-primary);
     }
     
-    .outline-item.flash {
+    .outline-item.active {
       background: var(--accent-muted);
+      color: var(--text-primary);
     }
     
     .outline-item.level-1 {
@@ -5204,23 +5252,45 @@ function addStyles() {
       font-size: 11px;
     }
     
-    .outline-level {
+    .outline-toggle {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-width: 20px;
-      height: 16px;
-      padding: 0 4px;
-      background: var(--bg-tertiary);
-      border-radius: 3px;
-      font-size: 9px;
-      font-weight: 700;
-      color: var(--accent);
+      width: 18px;
+      height: 18px;
+      font-size: 12px;
+      color: var(--text-primary);
       flex-shrink: 0;
+      transition: transform 0.15s ease, background 0.15s ease;
+      border-radius: 4px;
+      background: var(--bg-tertiary);
     }
     
-    .outline-item.level-1 .outline-level {
+    .outline-toggle:hover {
+      background: var(--accent-muted);
+      color: var(--accent);
+    }
+    
+    .outline-toggle.hidden {
+      background: transparent;
+      visibility: hidden;
+    }
+    
+    .outline-item.collapsed .outline-toggle {
+      transform: rotate(0deg);
+    }
+    
+    .outline-item:not(.collapsed) .outline-toggle:not(.hidden) {
+      transform: rotate(90deg);
+    }
+    
+    .outline-item.level-1 .outline-toggle {
       background: var(--accent);
+      color: white;
+    }
+    
+    .outline-item.level-1 .outline-toggle:hover {
+      background: var(--accent-hover);
       color: white;
     }
     
@@ -5229,6 +5299,19 @@ function addStyles() {
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    
+    .outline-active-icon {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--accent);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+      margin-left: auto;
+    }
+    
+    .outline-item.active .outline-active-icon {
+      opacity: 1;
     }
     
     .outline-section .empty-state {
