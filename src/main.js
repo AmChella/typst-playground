@@ -148,6 +148,9 @@ async function init() {
 
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => autoSave(), AUTO_SAVE_DELAY);
+    
+    // Update outline
+    updateOutline();
   });
 
   // Track cursor position
@@ -166,6 +169,9 @@ async function init() {
 
   // Initial compile
   compile(editor.getValue());
+  
+  // Initial outline
+  updateOutline();
 
   // Setup keyboard shortcuts
   setupKeyboardShortcuts();
@@ -387,6 +393,255 @@ function renderFileTree() {
   });
 }
 
+// =====================
+// DOCUMENT OUTLINE
+// =====================
+
+// State for outline
+let outlineItems = [];
+let outlineUpdateTimer = null;
+
+// Parse headings from Typst document
+function parseOutline(source) {
+  const lines = source.split('\n');
+  const headings = [];
+  
+  let inCodeBlock = false;
+  let inRawBlock = false;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+    
+    // Track code blocks (```)
+    if (trimmedLine.startsWith('```')) {
+      inCodeBlock = !inCodeBlock;
+      continue;
+    }
+    
+    // Track raw blocks (#raw)
+    if (trimmedLine.startsWith('#raw(') || trimmedLine.includes('```')) {
+      continue;
+    }
+    
+    // Skip if inside code block
+    if (inCodeBlock) continue;
+    
+    // Skip comment lines
+    if (trimmedLine.startsWith('//')) continue;
+    
+    // Match heading patterns: = Heading, == Heading, etc.
+    const headingMatch = line.match(/^(={1,6})\s+(.+)$/);
+    if (headingMatch) {
+      const level = headingMatch[1].length;
+      let title = headingMatch[2].trim();
+      
+      // Remove trailing markup like <label>
+      title = title.replace(/<[^>]+>$/, '').trim();
+      
+      // Remove inline markup for display
+      title = title
+        .replace(/\*([^*]+)\*/g, '$1')  // *bold*
+        .replace(/_([^_]+)_/g, '$1')    // _italic_
+        .replace(/`([^`]+)`/g, '$1')    // `code`
+        .replace(/#[a-z]+\[[^\]]*\]/g, '') // #func[content]
+        .replace(/#[a-z]+\([^)]*\)/g, '') // #func(args)
+        .trim();
+      
+      if (title) {
+        headings.push({
+          level,
+          title,
+          line: i + 1, // 1-based line number
+        });
+      }
+    }
+  }
+  
+  return headings;
+}
+
+// Render the outline in the sidebar
+function renderOutline() {
+  const outlineList = document.getElementById('outline-list');
+  const outlineEmpty = document.getElementById('outline-empty');
+  
+  if (!outlineList) return;
+  
+  if (outlineItems.length === 0) {
+    outlineList.innerHTML = `
+      <div class="empty-state" id="outline-empty">
+        <span>No headings found</span>
+      </div>
+    `;
+    return;
+  }
+  
+  // Find minimum level for proper indentation
+  const minLevel = Math.min(...outlineItems.map(h => h.level));
+  
+  outlineList.innerHTML = outlineItems.map((item, index) => {
+    const indentLevel = item.level - minLevel;
+    const levelClass = `level-${item.level}`;
+    const indentStyle = `padding-left: ${8 + indentLevel * 12}px`;
+    
+    // Icon based on level
+    const levelIcon = item.level === 1 ? 
+      '<span class="outline-level">H1</span>' : 
+      item.level === 2 ? 
+      '<span class="outline-level">H2</span>' : 
+      `<span class="outline-level">H${item.level}</span>`;
+    
+    return `
+      <div class="outline-item ${levelClass}" 
+           data-line="${item.line}" 
+           data-index="${index}"
+           style="${indentStyle}"
+           title="Line ${item.line}: ${escapeHtml(item.title)}">
+        ${levelIcon}
+        <span class="outline-title">${escapeHtml(item.title)}</span>
+      </div>
+    `;
+  }).join('');
+  
+  // Add click handlers
+  outlineList.querySelectorAll('.outline-item').forEach((item, idx) => {
+    item.addEventListener('click', () => {
+      const line = parseInt(item.dataset.line);
+      const index = parseInt(item.dataset.index);
+      const headingTitle = outlineItems[index]?.title || '';
+      
+      if (!isNaN(line) && editor) {
+        // Navigate to the heading in editor
+        editor.revealLineInCenter(line);
+        editor.setPosition({ lineNumber: line, column: 1 });
+        editor.focus();
+        
+        // Scroll PDF to the matching section
+        scrollPdfToHeading(headingTitle, line, index);
+        
+        // Flash highlight effect
+        item.classList.add('flash');
+        setTimeout(() => item.classList.remove('flash'), 300);
+      }
+    });
+  });
+}
+
+// Scroll PDF to the section matching the given heading title, index, and line
+function scrollPdfToHeading(headingTitle, lineNumber, headingIndex) {
+  if (totalPages === 0) return;
+
+  // First, try to find matching item in PDF outline by title
+  let matchingOutlineItem = findMatchingOutlineItem(headingTitle);
+
+  // If no title match, try by index (same position in outline)
+  if (!matchingOutlineItem && pdfOutline.length > 0 && headingIndex !== undefined) {
+    // Match by index if outlines have similar structure
+    if (headingIndex < pdfOutline.length) {
+      matchingOutlineItem = pdfOutline[headingIndex];
+    }
+  }
+
+  if (matchingOutlineItem && matchingOutlineItem.page) {
+    // Use precise PDF outline navigation
+    console.log('[Outline] Navigating to:', matchingOutlineItem.title, 'page:', matchingOutlineItem.page);
+    scrollToPagePosition(matchingOutlineItem.page, matchingOutlineItem.top);
+    return;
+  }
+  
+  // Fallback: estimate page based on line position
+  console.log('[Outline] Using fallback estimation for line:', lineNumber);
+  if (editor) {
+    const totalLines = editor.getModel().getLineCount();
+    const estimatedPage = Math.max(1, Math.min(totalPages, Math.ceil((lineNumber / totalLines) * totalPages)));
+    scrollToPagePosition(estimatedPage, null);
+  }
+}
+
+// Find matching outline item by title (fuzzy match)
+function findMatchingOutlineItem(headingTitle) {
+  if (!pdfOutline || pdfOutline.length === 0) return null;
+  
+  // Normalize title for comparison
+  const normalizeTitle = (t) => t.toLowerCase().trim().replace(/\s+/g, ' ');
+  const normalizedSearch = normalizeTitle(headingTitle);
+  
+  // Try exact match first
+  let match = pdfOutline.find(item => normalizeTitle(item.title) === normalizedSearch);
+  
+  if (!match) {
+    // Try partial match (heading contains or is contained in outline title)
+    match = pdfOutline.find(item => {
+      const normalizedItem = normalizeTitle(item.title);
+      return normalizedItem.includes(normalizedSearch) || normalizedSearch.includes(normalizedItem);
+    });
+  }
+  
+  return match;
+}
+
+// Scroll to a specific page and optionally to a Y position within the page
+function scrollToPagePosition(pageNum, topPosition) {
+  const pageWrapper = document.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`);
+  
+  if (pageWrapper) {
+    const previewContent = document.getElementById('preview-content');
+    
+    if (topPosition !== null && currentPdfDoc) {
+      // Calculate the actual scroll position based on the PDF coordinate
+      // PDF coordinates are from bottom, we need to convert to top-based
+      currentPdfDoc.getPage(pageNum).then(page => {
+        const viewport = page.getViewport({ scale: currentZoom * 1.5 });
+        const pageHeight = viewport.height;
+        
+        // Convert PDF coordinate (from bottom) to pixel offset (from top of page)
+        const offsetFromTop = pageHeight - (topPosition * currentZoom * 1.5);
+        
+        // Get page wrapper's position
+        const wrapperRect = pageWrapper.getBoundingClientRect();
+        const containerRect = previewContent.getBoundingClientRect();
+        const currentScroll = previewContent.scrollTop;
+        
+        // Calculate target scroll position
+        const pageTop = pageWrapper.offsetTop;
+        const targetScroll = pageTop + Math.max(0, offsetFromTop) - 60; // 60px padding to clear preview header
+        
+        previewContent.scrollTo({
+          top: targetScroll,
+          behavior: 'smooth'
+        });
+      }).catch(() => {
+        // Fallback to simple page scroll
+        pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    } else {
+      // Just scroll to the page
+      pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    
+    // Update current page indicator
+    currentPage = pageNum;
+    updatePageInfo();
+    
+    // Add a highlight effect to the page
+    pageWrapper.classList.add('highlight');
+    setTimeout(() => pageWrapper.classList.remove('highlight'), 500);
+  }
+}
+
+// Update outline (debounced)
+function updateOutline() {
+  if (!editor) return;
+  
+  clearTimeout(outlineUpdateTimer);
+  outlineUpdateTimer = setTimeout(() => {
+    const source = editor.getValue();
+    outlineItems = parseOutline(source);
+    renderOutline();
+  }, 500);
+}
+
 // Check if filename already exists
 function isFileNameTaken(fileName, excludeDocId = null) {
   for (const [docId, doc] of documents) {
@@ -442,6 +697,9 @@ async function switchDocument(docId) {
 
   // Compile new content
   compile(editor.getValue());
+  
+  // Update outline
+  updateOutline();
 
   showToast(`Opened "${currentFileName}"`);
 }
@@ -843,12 +1101,16 @@ function clearErrorHighlights() {
 // =====================
 // PDF RENDERING
 // =====================
+let currentPdfDoc = null;  // Store PDF document for outline navigation
+let pdfOutline = [];       // Store PDF outline/bookmarks
+
 async function renderPDF(buffer) {
   const container = document.getElementById("pdf-pages");
   container.innerHTML = "";
 
   try {
     const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+    currentPdfDoc = pdf;  // Store for later use
     totalPages = pdf.numPages;
     updatePageInfo();
 
@@ -872,11 +1134,79 @@ async function renderPDF(buffer) {
       container.appendChild(pageWrapper);
     }
 
+    // Extract PDF outline/bookmarks for navigation
+    await extractPdfOutline(pdf);
+
     // Setup intersection observer for page tracking
     setupPageTracking();
   } catch (e) {
     console.error("PDF render error:", e);
     setCompileStatus("error", "Failed to render PDF: " + e.message);
+  }
+}
+
+// Extract PDF outline/bookmarks for accurate navigation
+async function extractPdfOutline(pdf) {
+  try {
+    const outline = await pdf.getOutline();
+    pdfOutline = [];
+    
+    if (outline && outline.length > 0) {
+      console.log('[PDF] Raw outline found:', outline.length, 'top-level items');
+      // Process outline items recursively
+      await processOutlineItems(pdf, outline, pdfOutline, 0);
+      console.log('[PDF] Processed outline:', pdfOutline.map(i => `${i.title} -> p${i.page}`));
+    } else {
+      console.log('[PDF] No outline/bookmarks in PDF');
+    }
+  } catch (e) {
+    console.warn('[PDF] Could not extract outline:', e);
+    pdfOutline = [];
+  }
+}
+
+// Process outline items recursively
+async function processOutlineItems(pdf, items, result, level) {
+  for (const item of items) {
+    const outlineItem = {
+      title: item.title,
+      level: level,
+      page: null,
+      top: null
+    };
+    
+    // Get the destination
+    if (item.dest) {
+      try {
+        let dest = item.dest;
+        // If dest is a string, resolve it
+        if (typeof dest === 'string') {
+          dest = await pdf.getDestination(dest);
+        }
+        
+        if (dest && dest.length > 0) {
+          // Get page index from destination reference
+          const pageIndex = await pdf.getPageIndex(dest[0]);
+          outlineItem.page = pageIndex + 1; // Convert to 1-based
+          
+          // Get Y position if available
+          // For XYZ destinations: [pageRef, {name:"XYZ"}, left, top, zoom]
+          // dest[3] is the Y coordinate (top position from bottom of page)
+          if (dest.length > 3 && typeof dest[3] === 'number') {
+            outlineItem.top = dest[3];
+          }
+        }
+      } catch (e) {
+        console.warn('[PDF] Could not resolve destination for:', item.title);
+      }
+    }
+    
+    result.push(outlineItem);
+    
+    // Process children
+    if (item.items && item.items.length > 0) {
+      await processOutlineItems(pdf, item.items, result, level + 1);
+    }
   }
 }
 
@@ -1926,8 +2256,9 @@ function setupUI() {
           <div class="sidebar-content">
             <!-- Documents Section -->
             <div class="sidebar-section">
-              <div class="sidebar-section-header" data-tooltip="Documents">
+              <div class="sidebar-section-header collapsible" id="documents-header" data-tooltip="Documents">
                 <div class="section-title">
+                  <span class="section-chevron">${icons.chevronDown}</span>
                   <span class="section-icon">${icons.folder}</span>
                   <span class="section-label">Documents</span>
                 </div>
@@ -1984,6 +2315,27 @@ function setupUI() {
               <div class="fonts-list" id="fonts-list">
                 <div class="empty-state" id="fonts-empty">
                   <span>Upload .ttf or .otf fonts</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Outline Section -->
+            <div class="sidebar-section outline-section">
+              <div class="sidebar-section-header collapsible" id="outline-header" data-tooltip="Outline">
+                <div class="section-title">
+                  <span class="section-chevron">${icons.chevronDown}</span>
+                  <span class="section-icon">${icons.outline}</span>
+                  <span class="section-label">Outline</span>
+                </div>
+                <div class="sidebar-actions">
+                  <button class="icon-btn tiny" id="btn-refresh-outline" title="Refresh Outline">
+                    ${icons.refresh}
+                  </button>
+                </div>
+              </div>
+              <div class="outline-list" id="outline-list">
+                <div class="empty-state" id="outline-empty">
+                  <span>No headings found</span>
                 </div>
               </div>
             </div>
@@ -2361,6 +2713,56 @@ function setupEventListeners() {
   // Find and Replace buttons
   document.getElementById("btn-find").addEventListener("click", openFind);
   document.getElementById("btn-replace").addEventListener("click", openFindReplace);
+  
+  // Collapsible sidebar sections
+  setupCollapsibleSections();
+  
+  // Outline refresh button
+  document.getElementById("btn-refresh-outline").addEventListener("click", (e) => {
+    e.stopPropagation();
+    updateOutline();
+    showToast("Outline refreshed");
+  });
+}
+
+// =====================
+// COLLAPSIBLE SECTIONS
+// =====================
+function setupCollapsibleSections() {
+  // Handle all collapsible section headers
+  const collapsibleHeaders = document.querySelectorAll('.sidebar-section-header.collapsible');
+  
+  collapsibleHeaders.forEach(header => {
+    // Add click handler
+    header.addEventListener('click', function(e) {
+      // Don't collapse if clicking on action buttons
+      if (e.target.closest('.sidebar-actions')) return;
+      
+      const section = this.closest('.sidebar-section');
+      // Find the content list within this section
+      const list = section.querySelector('.uploads-list, .fonts-list, .outline-list, .file-tree');
+      
+      if (list) {
+        this.classList.toggle('collapsed');
+        list.classList.toggle('collapsed');
+        
+        // Save state
+        const sectionId = this.id;
+        const isCollapsed = this.classList.contains('collapsed');
+        localStorage.setItem(`section-${sectionId}`, isCollapsed ? 'collapsed' : 'expanded');
+      }
+    });
+    
+    // Restore saved state
+    const sectionId = header.id;
+    const savedState = localStorage.getItem(`section-${sectionId}`);
+    if (savedState === 'collapsed') {
+      header.classList.add('collapsed');
+      const section = header.closest('.sidebar-section');
+      const list = section.querySelector('.uploads-list, .fonts-list, .outline-list, .file-tree');
+      if (list) list.classList.add('collapsed');
+    }
+  });
 }
 
 // =====================
@@ -4538,7 +4940,8 @@ function addStyles() {
 
     .sidebar.collapsed .file-tree,
     .sidebar.collapsed .uploads-list,
-    .sidebar.collapsed .fonts-list {
+    .sidebar.collapsed .fonts-list,
+    .sidebar.collapsed .outline-list {
       display: none;
     }
 
@@ -4746,6 +5149,93 @@ function addStyles() {
 
     .font-item:hover .delete-font {
       opacity: 1;
+    }
+
+    /* Outline Section */
+    .outline-list {
+      padding: 4px 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .outline-list.collapsed,
+    .uploads-list.collapsed,
+    .fonts-list.collapsed,
+    .file-tree.collapsed {
+      display: none;
+    }
+    
+    .outline-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      transition: all 0.15s;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    
+    .outline-item:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+    
+    .outline-item.flash {
+      background: var(--accent-muted);
+    }
+    
+    .outline-item.level-1 {
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    
+    .outline-item.level-2 {
+      font-weight: 500;
+    }
+    
+    .outline-item.level-3,
+    .outline-item.level-4,
+    .outline-item.level-5,
+    .outline-item.level-6 {
+      font-weight: 400;
+      font-size: 11px;
+    }
+    
+    .outline-level {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 20px;
+      height: 16px;
+      padding: 0 4px;
+      background: var(--bg-tertiary);
+      border-radius: 3px;
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--accent);
+      flex-shrink: 0;
+    }
+    
+    .outline-item.level-1 .outline-level {
+      background: var(--accent);
+      color: white;
+    }
+    
+    .outline-title {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    
+    .outline-section .empty-state {
+      padding: 16px 8px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 11px;
     }
 
     /* Font Manager Modal */
@@ -5880,6 +6370,12 @@ function addStyles() {
 
     .pdf-page-wrapper {
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: box-shadow 0.3s, transform 0.3s;
+    }
+    
+    .pdf-page-wrapper.highlight {
+      box-shadow: 0 0 0 3px var(--accent), 0 4px 20px rgba(0, 0, 0, 0.4);
+      transform: scale(1.01);
     }
 
     .pdf-page {
