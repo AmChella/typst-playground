@@ -21,6 +21,7 @@ import { initStorage, saveDocument, getDocument, getAllDocuments, deleteDocument
 import { templates, getTemplate, getTemplateList } from "./templates.js";
 import { getSharedContent, hasSharedContent, clearShareParam, copyShareLink, getShareLinkInfo } from "./share.js";
 import { icons, getIcon } from "./icons.js";
+import { PaginationValidator, getDefaultRules } from "./pagination-validator.js";
 
 // =====================
 // CONSTANTS
@@ -72,6 +73,14 @@ let autoCompile = true;
 
 // Loaded fonts
 let loadedFonts = [];
+
+// Pagination Validator State
+let paginationValidator = null;
+let validationResults = null;
+let validationPanelVisible = false;
+let validationPanelPosition = { x: 20, y: 80 };
+let autoValidate = true; // Auto-validate after PDF generation
+let validationRules = null; // Will be loaded from getDefaultRules()
 
 // =====================
 // INITIALIZATION
@@ -884,6 +893,12 @@ function handleCompilerMessage(event) {
     // Pass a separate copy to pdf.js for rendering
     renderPDF(new Uint8Array(pdfBuffer));
     setCompileStatus("ready");
+    
+    // Auto-validate if enabled
+    if (autoValidate) {
+      // Small delay to let PDF render complete
+      setTimeout(() => runValidation(), 100);
+    }
   }
 }
 
@@ -1270,6 +1285,494 @@ function updatePageInfo() {
   if (pageInfo) {
     pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
   }
+}
+
+// =====================
+// PAGINATION VALIDATION
+// =====================
+function initValidator() {
+  if (!validationRules) {
+    validationRules = getDefaultRules();
+    loadValidationSettings();
+  }
+  if (!paginationValidator) {
+    paginationValidator = new PaginationValidator(validationRules);
+  }
+  return paginationValidator;
+}
+
+function loadValidationSettings() {
+  try {
+    const saved = localStorage.getItem('typst-validation-settings');
+    if (saved) {
+      const settings = JSON.parse(saved);
+      validationRules = settings.rules || validationRules;
+      autoValidate = settings.autoValidate !== undefined ? settings.autoValidate : true;
+    }
+  } catch (e) {
+    console.warn('Failed to load validation settings:', e);
+  }
+}
+
+function saveValidationSettings() {
+  try {
+    localStorage.setItem('typst-validation-settings', JSON.stringify({
+      rules: validationRules,
+      autoValidate: autoValidate
+    }));
+  } catch (e) {
+    console.warn('Failed to save validation settings:', e);
+  }
+}
+
+async function runValidation() {
+  const validationBody = document.getElementById("validation-body");
+  const validationBadge = document.getElementById("validation-badge");
+  
+  // Check if PDF buffer exists
+  if (!currentPdfBuffer || currentPdfBuffer.length === 0) {
+    // If panel is already visible, show error in the panel
+    if (validationPanelVisible) {
+      validationBody.innerHTML = `
+        <div class="validation-empty">
+          <div class="validation-empty-icon error">${icons.error}</div>
+          <p>No PDF document found. Please compile your document first.</p>
+        </div>
+      `;
+      validationBadge.textContent = "No PDF";
+      validationBadge.className = "validation-badge fail";
+    } else {
+      showToast("No PDF to validate. Please compile your document first.");
+    }
+    return;
+  }
+
+  showValidationPanel();
+  
+  validationBody.innerHTML = `
+    <div class="validation-loading">
+      <span class="validation-spinner">${icons.loading}</span>
+      <span>Validating PDF...</span>
+    </div>
+  `;
+  validationBadge.textContent = "";
+  validationBadge.className = "validation-badge";
+
+  try {
+    const validator = initValidator();
+    // Update validator rules in case they changed
+    validator.rules = validationRules;
+    
+    // Create a copy of the buffer for validation (to prevent detachment issues)
+    const bufferCopy = new Uint8Array(currentPdfBuffer);
+    validationResults = await validator.validate(bufferCopy);
+    renderValidationResults(validationResults);
+  } catch (error) {
+    console.error("Validation error:", error);
+    validationBody.innerHTML = `
+      <div class="validation-empty">
+        <div class="validation-empty-icon error">${icons.error}</div>
+        <p>Validation failed: ${error.message}</p>
+      </div>
+    `;
+    validationBadge.textContent = "Error";
+    validationBadge.className = "validation-badge fail";
+  }
+}
+
+function renderValidationResults(summary) {
+  const validationBody = document.getElementById("validation-body");
+  const validationBadge = document.getElementById("validation-badge");
+  
+  // Update the toolbar indicator
+  updateValidationIndicator();
+  
+  if (!summary || !summary.results) {
+    validationBody.innerHTML = `
+      <div class="validation-empty">
+        <p>No validation results available.</p>
+      </div>
+    `;
+    return;
+  }
+
+  // Update badge
+  if (summary.failed > 0) {
+    validationBadge.textContent = `${summary.failed} Error${summary.failed > 1 ? 's' : ''}`;
+    validationBadge.className = "validation-badge fail";
+  } else if (summary.warnings > 0) {
+    validationBadge.textContent = `${summary.warnings} Warning${summary.warnings > 1 ? 's' : ''}`;
+    validationBadge.className = "validation-badge warning";
+  } else {
+    validationBadge.textContent = "Passed";
+    validationBadge.className = "validation-badge pass";
+  }
+
+  // Build summary HTML
+  let html = `
+    <div class="validation-summary">
+      <div class="validation-stat passed">
+        <span class="stat-count">${summary.passed}</span>
+        <span class="stat-label">Passed</span>
+      </div>
+      <div class="validation-stat failed">
+        <span class="stat-count">${summary.failed}</span>
+        <span class="stat-label">Failed</span>
+      </div>
+      <div class="validation-stat warnings">
+        <span class="stat-count">${summary.warnings}</span>
+        <span class="stat-label">Warnings</span>
+      </div>
+    </div>
+  `;
+
+  // Filter to show only non-pass results, or all if everything passed
+  const resultsToShow = summary.results.filter(r => r.status !== 'pass');
+  
+  if (resultsToShow.length === 0) {
+    html += `
+      <div class="validation-success">
+        <div class="validation-success-icon">${icons.check}</div>
+        <p>All validation rules passed!</p>
+      </div>
+    `;
+  } else {
+    html += '<div class="validation-results-list">';
+    
+    // Sort: errors first, then warnings, then info
+    const sortedResults = [...resultsToShow].sort((a, b) => {
+      const order = { error: 0, warning: 1, info: 2 };
+      return (order[a.severity] || 3) - (order[b.severity] || 3);
+    });
+
+    for (const result of sortedResults) {
+      const severityClass = result.severity || 'info';
+      const iconSvg = getValidationIcon(result.status, result.severity);
+      const pageAttr = result.page ? `data-page="${result.page}"` : '';
+      const clickableClass = result.page ? 'clickable' : '';
+      
+      html += `
+        <div class="validation-result-item ${severityClass} ${clickableClass}" ${pageAttr}>
+          <div class="validation-result-icon">${iconSvg}</div>
+          <div class="validation-result-content">
+            <div class="validation-result-header">
+              <span class="validation-result-rule">${escapeHtml(result.ruleName)}</span>
+              ${result.page ? `<span class="validation-result-page" title="Click to navigate">Page ${result.page}</span>` : ''}
+            </div>
+            <div class="validation-result-message">${escapeHtml(result.message)}</div>
+          </div>
+        </div>
+      `;
+    }
+    
+    html += '</div>';
+  }
+
+  validationBody.innerHTML = html;
+  
+  // Add click handlers for page navigation
+  validationBody.querySelectorAll('.validation-result-item.clickable').forEach(item => {
+    item.addEventListener('click', () => {
+      const page = parseInt(item.dataset.page);
+      if (page) {
+        navigateToPage(page);
+      }
+    });
+  });
+}
+
+function getValidationIcon(status, severity) {
+  if (status === 'pass') return icons.check;
+  if (severity === 'error') return icons.error;
+  if (severity === 'warning') return icons.warning;
+  return icons.info;
+}
+
+function navigateToPage(pageNum) {
+  const pageWrapper = document.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`);
+  if (pageWrapper) {
+    const previewContent = document.getElementById('preview-content');
+    if (previewContent) {
+      // Scroll the page into view with smooth animation
+      pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      
+      // Add highlight effect
+      pageWrapper.classList.add('page-highlight');
+      setTimeout(() => pageWrapper.classList.remove('page-highlight'), 1500);
+    }
+  }
+}
+
+function showValidationPanel() {
+  const panel = document.getElementById("validation-panel");
+  panel.style.display = "flex";
+  panel.style.left = validationPanelPosition.x + 'px';
+  panel.style.top = validationPanelPosition.y + 'px';
+  validationPanelVisible = true;
+  
+  // Ensure panel is within viewport
+  requestAnimationFrame(() => {
+    constrainPanelToViewport(panel);
+  });
+}
+
+function hideValidationPanel() {
+  const panel = document.getElementById("validation-panel");
+  panel.style.display = "none";
+  validationPanelVisible = false;
+  updateValidationIndicator();
+}
+
+function updateValidationIndicator() {
+  const btn = document.getElementById("btn-toggle-validation");
+  
+  if (!btn) return;
+  
+  // Remove previous status classes
+  btn.classList.remove("status-pass", "status-error", "status-warning");
+  
+  if (!validationResults) {
+    btn.title = "Run Validation";
+    return;
+  }
+  
+  if (validationResults.failed > 0) {
+    btn.classList.add("status-error");
+    btn.title = `Validation: ${validationResults.failed} error(s)`;
+  } else if (validationResults.warnings > 0) {
+    btn.classList.add("status-warning");
+    btn.title = `Validation: ${validationResults.warnings} warning(s)`;
+  } else {
+    btn.classList.add("status-pass");
+    btn.title = "Validation: All passed";
+  }
+}
+
+function minimizeValidationPanel() {
+  const panel = document.getElementById("validation-panel");
+  const body = document.getElementById("validation-body");
+  const btn = document.getElementById("btn-minimize-validation");
+  
+  panel.classList.toggle('minimized');
+  if (panel.classList.contains('minimized')) {
+    body.style.display = 'none';
+    btn.innerHTML = icons.chevronRight;
+    btn.title = 'Expand';
+  } else {
+    body.style.display = 'block';
+    btn.innerHTML = icons.chevronDown;
+    btn.title = 'Minimize';
+  }
+}
+
+function constrainPanelToViewport(panel) {
+  const rect = panel.getBoundingClientRect();
+  const maxX = window.innerWidth - rect.width - 10;
+  const maxY = window.innerHeight - rect.height - 10;
+  
+  let x = Math.max(10, Math.min(rect.left, maxX));
+  let y = Math.max(10, Math.min(rect.top, maxY));
+  
+  panel.style.left = x + 'px';
+  panel.style.top = y + 'px';
+  validationPanelPosition = { x, y };
+}
+
+function setupValidationPanelDrag() {
+  const panel = document.getElementById("validation-panel");
+  const handle = document.getElementById("validation-drag-handle");
+  
+  let isDragging = false;
+  let startX, startY, initialX, initialY;
+
+  handle.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.icon-btn')) return; // Don't drag when clicking buttons
+    
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    initialX = panel.offsetLeft;
+    initialY = panel.offsetTop;
+    
+    panel.classList.add('dragging');
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    
+    let newX = initialX + dx;
+    let newY = initialY + dy;
+    
+    // Constrain to viewport
+    const rect = panel.getBoundingClientRect();
+    newX = Math.max(10, Math.min(newX, window.innerWidth - rect.width - 10));
+    newY = Math.max(10, Math.min(newY, window.innerHeight - rect.height - 10));
+    
+    panel.style.left = newX + 'px';
+    panel.style.top = newY + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (isDragging) {
+      isDragging = false;
+      panel.classList.remove('dragging');
+      validationPanelPosition = {
+        x: panel.offsetLeft,
+        y: panel.offsetTop
+      };
+    }
+  });
+}
+
+function showValidationSettings() {
+  const overlay = document.getElementById('validation-settings-overlay');
+  const content = document.getElementById('validation-rules-content');
+  
+  // Initialize rules if needed
+  if (!validationRules) {
+    validationRules = getDefaultRules();
+  }
+  
+  // Build rules configuration UI
+  let html = '<div class="validation-rules-list">';
+  
+  for (const rule of validationRules) {
+    html += `
+      <div class="validation-rule-config" data-rule-id="${rule.id}">
+        <div class="rule-header">
+          <label class="rule-toggle">
+            <input type="checkbox" class="rule-enabled" ${rule.enabled ? 'checked' : ''}>
+            <span class="rule-name">${escapeHtml(rule.name)}</span>
+          </label>
+          <select class="rule-severity-select" data-current="${rule.severity}">
+            <option value="error" ${rule.severity === 'error' ? 'selected' : ''}>Error</option>
+            <option value="warning" ${rule.severity === 'warning' ? 'selected' : ''}>Warning</option>
+            <option value="info" ${rule.severity === 'info' ? 'selected' : ''}>Info</option>
+          </select>
+        </div>
+        <p class="rule-description">${escapeHtml(rule.description)}</p>
+        ${renderRuleConfig(rule)}
+      </div>
+    `;
+  }
+  
+  html += '</div>';
+  content.innerHTML = html;
+  
+  // Set auto-validate toggle
+  document.getElementById('auto-validate-toggle').checked = autoValidate;
+  
+  overlay.style.display = 'flex';
+}
+
+function renderRuleConfig(rule) {
+  if (!rule.config || Object.keys(rule.config).length === 0) {
+    return '';
+  }
+  
+  let html = '<div class="rule-config-options">';
+  
+  for (const [key, value] of Object.entries(rule.config)) {
+    const inputId = `rule-${rule.id}-${key}`;
+    const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+    
+    if (typeof value === 'boolean') {
+      html += `
+        <label class="config-option checkbox">
+          <input type="checkbox" id="${inputId}" data-config-key="${key}" ${value ? 'checked' : ''}>
+          <span>${label}</span>
+        </label>
+      `;
+    } else if (typeof value === 'number') {
+      html += `
+        <label class="config-option number">
+          <span>${label}:</span>
+          <input type="number" id="${inputId}" data-config-key="${key}" value="${value}" min="0">
+        </label>
+      `;
+    } else if (typeof value === 'string' && key.toLowerCase().includes('size')) {
+      // Page size selector
+      const sizes = ['A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'Letter', 'Legal', 'Tabloid', 'Executive', 'B4', 'B5'];
+      html += `
+        <label class="config-option select">
+          <span>${label}:</span>
+          <select id="${inputId}" data-config-key="${key}">
+            ${sizes.map(s => `<option value="${s}" ${value === s ? 'selected' : ''}>${s}</option>`).join('')}
+          </select>
+        </label>
+      `;
+    }
+  }
+  
+  html += '</div>';
+  return html;
+}
+
+function hideValidationSettings() {
+  document.getElementById('validation-settings-overlay').style.display = 'none';
+}
+
+function saveValidationRulesFromUI() {
+  const ruleConfigs = document.querySelectorAll('.validation-rule-config');
+  
+  ruleConfigs.forEach(configEl => {
+    const ruleId = configEl.dataset.ruleId;
+    const rule = validationRules.find(r => r.id === ruleId);
+    if (!rule) return;
+    
+    // Update enabled state
+    const enabledCheckbox = configEl.querySelector('.rule-enabled');
+    if (enabledCheckbox) {
+      rule.enabled = enabledCheckbox.checked;
+    }
+    
+    // Update severity level
+    const severitySelect = configEl.querySelector('.rule-severity-select');
+    if (severitySelect) {
+      rule.severity = severitySelect.value;
+    }
+    
+    // Update config options
+    configEl.querySelectorAll('[data-config-key]').forEach(input => {
+      const key = input.dataset.configKey;
+      if (input.type === 'checkbox') {
+        rule.config[key] = input.checked;
+      } else if (input.type === 'number') {
+        rule.config[key] = parseFloat(input.value) || 0;
+      } else {
+        rule.config[key] = input.value;
+      }
+    });
+  });
+  
+  // Update auto-validate setting
+  autoValidate = document.getElementById('auto-validate-toggle').checked;
+  
+  // Update the validator with new rules
+  if (paginationValidator) {
+    paginationValidator.rules = validationRules;
+  }
+  
+  // Save to localStorage
+  saveValidationSettings();
+  
+  hideValidationSettings();
+  showToast('Validation settings saved');
+  
+  // Re-run validation if panel is visible
+  if (validationPanelVisible && currentPdfBuffer) {
+    runValidation();
+  }
+}
+
+function resetValidationRules() {
+  validationRules = getDefaultRules();
+  showValidationSettings(); // Refresh the UI
+  showToast('Validation rules reset to defaults');
 }
 
 // =====================
@@ -2557,6 +3060,9 @@ function setupUI() {
               </button>
             </div>
             <div class="preview-toolbar-right">
+              <button class="icon-btn small validation-toggle" id="btn-toggle-validation" title="Toggle Validation Panel">
+                ${icons.validate}
+              </button>
               <span class="page-info" id="page-info">Page 1 of 1</span>
             </div>
           </div>
@@ -2600,6 +3106,60 @@ function setupUI() {
 
     <!-- Toast -->
     <div class="toast" id="toast"></div>
+
+    <!-- Floating Validation Panel -->
+    <div class="validation-float-panel" id="validation-panel" style="display: none;">
+      <div class="validation-float-header" id="validation-drag-handle">
+        <div class="validation-float-title">
+          <span class="validation-title-icon">${icons.validate}</span>
+          <span>PDF Validation</span>
+          <span class="validation-badge" id="validation-badge"></span>
+        </div>
+        <div class="validation-float-actions">
+          <button class="icon-btn tiny" id="btn-validation-settings" title="Validation Settings">
+            ${icons.settings}
+          </button>
+          <button class="icon-btn tiny" id="btn-revalidate" title="Re-validate">
+            ${icons.refresh}
+          </button>
+          <button class="icon-btn tiny" id="btn-minimize-validation" title="Minimize">
+            ${icons.chevronDown}
+          </button>
+          <button class="icon-btn tiny" id="btn-close-validation" title="Close">
+            ${icons.close}
+          </button>
+        </div>
+      </div>
+      <div class="validation-float-body" id="validation-body">
+        <div class="validation-loading">
+          <span class="validation-spinner">${icons.loading}</span>
+          <span>Validating PDF...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Validation Settings Modal -->
+    <div class="modal-overlay" id="validation-settings-overlay" style="display: none;">
+      <div class="modal validation-settings-modal">
+        <div class="modal-header">
+          <span class="modal-title">Validation Rules Configuration</span>
+          <button class="icon-btn" id="validation-settings-close">${icons.close}</button>
+        </div>
+        <div class="modal-content" id="validation-rules-content">
+          <!-- Rules will be populated here -->
+        </div>
+        <div class="modal-footer">
+          <label class="checkbox-label">
+            <input type="checkbox" id="auto-validate-toggle" checked>
+            <span>Auto-validate after compilation</span>
+          </label>
+          <div class="modal-actions">
+            <button class="btn secondary" id="btn-reset-rules">Reset to Defaults</button>
+            <button class="btn primary" id="btn-save-rules">Save & Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
   `;
 
   // Add styles
@@ -2679,6 +3239,59 @@ function setupEventListeners() {
     e.preventDefault();
     resetZoom();
   });
+
+  // Validation toggle button in toolbar
+  document.getElementById("btn-toggle-validation").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (validationPanelVisible) {
+      hideValidationPanel();
+    } else {
+      if (validationResults) {
+        // Just show the panel with existing results
+        showValidationPanel();
+      } else {
+        // Run validation
+        runValidation();
+      }
+    }
+  });
+
+  // Validation panel controls
+  document.getElementById("btn-close-validation").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    hideValidationPanel();
+  });
+  document.getElementById("btn-minimize-validation").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    minimizeValidationPanel();
+  });
+  document.getElementById("btn-revalidate").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    console.log("Revalidate clicked, currentPdfBuffer:", currentPdfBuffer ? "exists (" + currentPdfBuffer.length + " bytes)" : "null");
+    runValidation();
+  });
+  document.getElementById("btn-validation-settings").addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showValidationSettings();
+  });
+  
+  // Validation settings modal controls
+  document.getElementById("validation-settings-close").addEventListener("click", hideValidationSettings);
+  document.getElementById("btn-save-rules").addEventListener("click", saveValidationRulesFromUI);
+  document.getElementById("btn-reset-rules").addEventListener("click", resetValidationRules);
+  document.getElementById("validation-settings-overlay").addEventListener("click", (e) => {
+    if (e.target.id === "validation-settings-overlay") {
+      hideValidationSettings();
+    }
+  });
+  
+  // Setup draggable validation panel
+  setupValidationPanelDrag();
 
   // Error window controls
   document.getElementById("btn-close-error").addEventListener("click", () => {
@@ -7469,6 +8082,596 @@ function addStyles() {
     .editor-panel:has(.error-window.visible) .visual-editor-container {
       flex: 1;
       min-height: 0;
+    }
+
+    /* ===================== */
+    /* FLOATING VALIDATION PANEL */
+    /* ===================== */
+    .validation-float-panel {
+      position: fixed;
+      z-index: 1000;
+      width: 380px;
+      max-width: calc(100vw - 40px);
+      max-height: 60vh;
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3), 0 2px 8px rgba(0, 0, 0, 0.2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .validation-float-panel.dragging {
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4), 0 4px 12px rgba(0, 0, 0, 0.3);
+      opacity: 0.95;
+    }
+
+    .validation-float-panel.minimized {
+      max-height: none;
+    }
+
+    .validation-float-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border-color);
+      cursor: move;
+      user-select: none;
+    }
+
+    .validation-float-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .validation-title-icon {
+      display: flex;
+      align-items: center;
+      color: var(--accent);
+    }
+
+    .validation-title-icon svg {
+      width: 16px;
+      height: 16px;
+    }
+
+    .validation-badge {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: var(--bg-primary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .validation-badge.pass {
+      background: rgba(74, 222, 128, 0.2);
+      color: #4ade80;
+    }
+
+    .validation-badge.fail {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+
+    .validation-badge.warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    .validation-float-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .icon-btn.tiny {
+      width: 24px;
+      height: 24px;
+      padding: 4px;
+      border-radius: 4px;
+    }
+
+    .icon-btn.tiny svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .validation-float-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      min-height: 100px;
+      max-height: calc(60vh - 50px);
+    }
+
+    .validation-loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 40px 20px;
+      color: var(--text-secondary);
+    }
+
+    .validation-spinner {
+      display: flex;
+      animation: spin 1s linear infinite;
+    }
+
+    .validation-spinner svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    .validation-summary {
+      display: flex;
+      gap: 12px;
+      padding: 12px;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      margin-bottom: 12px;
+    }
+
+    .validation-stat {
+      flex: 1;
+      text-align: center;
+      padding: 8px;
+      border-radius: 6px;
+      background: var(--bg-tertiary);
+    }
+
+    .validation-stat .stat-count {
+      display: block;
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.2;
+    }
+
+    .validation-stat .stat-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--text-secondary);
+    }
+
+    .validation-stat.passed .stat-count { color: #4ade80; }
+    .validation-stat.failed .stat-count { color: #f87171; }
+    .validation-stat.warnings .stat-count { color: #fbbf24; }
+
+    .validation-success {
+      text-align: center;
+      padding: 24px;
+      color: var(--text-secondary);
+    }
+
+    .validation-success-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 12px;
+      color: #4ade80;
+    }
+
+    .validation-success-icon svg {
+      width: 36px;
+      height: 36px;
+    }
+
+    .validation-results-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .validation-result-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      background: var(--bg-primary);
+      border-radius: 8px;
+      border-left: 3px solid var(--border-color);
+      transition: all 0.15s ease;
+    }
+
+    .validation-result-item.clickable {
+      cursor: pointer;
+    }
+
+    .validation-result-item.clickable:hover {
+      background: var(--bg-tertiary);
+      transform: translateX(2px);
+    }
+
+    .validation-result-item.error { border-left-color: #f87171; }
+    .validation-result-item.warning { border-left-color: #fbbf24; }
+    .validation-result-item.info { border-left-color: var(--accent); }
+
+    .validation-result-icon {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      margin-top: 1px;
+    }
+
+    .validation-result-icon svg {
+      width: 12px;
+      height: 12px;
+    }
+
+    .validation-result-item.error .validation-result-icon {
+      background: rgba(248, 113, 113, 0.2);
+      color: #f87171;
+    }
+
+    .validation-result-item.warning .validation-result-icon {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    .validation-result-item.info .validation-result-icon {
+      background: rgba(34, 211, 238, 0.2);
+      color: var(--accent);
+    }
+
+    .validation-result-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .validation-result-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+
+    .validation-result-rule {
+      font-weight: 600;
+      font-size: 12px;
+      color: var(--text-primary);
+    }
+
+    .validation-result-page {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      background: var(--accent);
+      color: var(--bg-primary);
+      font-weight: 600;
+    }
+
+    .validation-result-message {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .validation-empty {
+      text-align: center;
+      padding: 30px;
+      color: var(--text-secondary);
+    }
+
+    .validation-empty-icon {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+
+    .validation-empty-icon svg {
+      width: 32px;
+      height: 32px;
+    }
+
+    .validation-empty-icon.error { color: #f87171; }
+
+    /* Page highlight effect when navigating */
+    .pdf-page-wrapper.page-highlight {
+      animation: pageHighlight 1.5s ease-out;
+    }
+
+    @keyframes pageHighlight {
+      0% { box-shadow: 0 0 0 4px var(--accent); }
+      100% { box-shadow: none; }
+    }
+
+    /* Validation Settings Modal */
+    .validation-settings-modal {
+      width: 560px;
+      max-width: 90vw;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .validation-settings-modal .modal-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .validation-settings-modal .modal-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+    }
+
+    .modal-footer .modal-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .validation-rules-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .validation-rule-config {
+      padding: 12px;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+    }
+
+    .rule-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .rule-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .rule-toggle input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+    }
+
+    .rule-name {
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .rule-severity {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .rule-severity.error {
+      background: rgba(248, 113, 113, 0.2);
+      color: #f87171;
+    }
+
+    .rule-severity.warning {
+      background: rgba(251, 191, 36, 0.2);
+      color: #fbbf24;
+    }
+
+    .rule-severity.info {
+      background: rgba(34, 211, 238, 0.2);
+      color: var(--accent);
+    }
+
+    .rule-description {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin: 0 0 8px 0;
+      line-height: 1.4;
+    }
+
+    .rule-config-options {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .config-option {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+
+    .config-option input[type="number"] {
+      width: 70px;
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .config-option select {
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 12px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn.primary {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    .btn.primary:hover {
+      filter: brightness(1.1);
+    }
+
+    .btn.secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn.secondary:hover {
+      background: var(--bg-primary);
+    }
+
+    /* Light theme adjustments */
+    [data-theme="light"] .validation-float-panel {
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    [data-theme="light"] .validation-badge.pass {
+      background: rgba(34, 197, 94, 0.15);
+      color: #16a34a;
+    }
+
+    [data-theme="light"] .validation-badge.fail {
+      background: rgba(220, 38, 38, 0.15);
+      color: #dc2626;
+    }
+
+    [data-theme="light"] .validation-badge.warning {
+      background: rgba(217, 119, 6, 0.15);
+      color: #d97706;
+    }
+
+    [data-theme="light"] .validation-stat.passed .stat-count { color: #16a34a; }
+    [data-theme="light"] .validation-stat.failed .stat-count { color: #dc2626; }
+    [data-theme="light"] .validation-stat.warnings .stat-count { color: #d97706; }
+
+    /* Validation Toggle Button */
+    .validation-toggle {
+      transition: color 0.2s ease;
+    }
+
+    .validation-toggle.status-pass {
+      color: #4ade80 !important;
+    }
+
+    .validation-toggle.status-pass:hover {
+      color: #22c55e !important;
+      background: rgba(74, 222, 128, 0.15);
+    }
+
+    .validation-toggle.status-error {
+      color: #f87171 !important;
+    }
+
+    .validation-toggle.status-error:hover {
+      color: #ef4444 !important;
+      background: rgba(248, 113, 113, 0.15);
+    }
+
+    .validation-toggle.status-warning {
+      color: #fbbf24 !important;
+    }
+
+    .validation-toggle.status-warning:hover {
+      color: #f59e0b !important;
+      background: rgba(251, 191, 36, 0.15);
+    }
+
+    /* Light theme adjustments */
+    [data-theme="light"] .validation-toggle.status-pass {
+      color: #16a34a !important;
+    }
+
+    [data-theme="light"] .validation-toggle.status-error {
+      color: #dc2626 !important;
+    }
+
+    [data-theme="light"] .validation-toggle.status-warning {
+      color: #d97706 !important;
+    }
+
+    /* Severity Selector in Settings */
+    .rule-severity-select {
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      cursor: pointer;
+    }
+
+    .rule-severity-select option {
+      text-transform: uppercase;
+    }
+
+    .rule-severity-select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* Color code the severity select based on value */
+    .rule-severity-select[data-current="error"],
+    .rule-severity-select:has(option[value="error"]:checked) {
+      border-color: rgba(248, 113, 113, 0.5);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    .rule-severity-select[data-current="warning"],
+    .rule-severity-select:has(option[value="warning"]:checked) {
+      border-color: rgba(251, 191, 36, 0.5);
+      background: rgba(251, 191, 36, 0.1);
+    }
+
+    .rule-severity-select[data-current="info"],
+    .rule-severity-select:has(option[value="info"]:checked) {
+      border-color: rgba(34, 211, 238, 0.5);
+      background: rgba(34, 211, 238, 0.1);
     }
   `;
   document.head.appendChild(style);
