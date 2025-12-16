@@ -21,6 +21,7 @@ import { initStorage, saveDocument, getDocument, getAllDocuments, deleteDocument
 import { templates, getTemplate, getTemplateList } from "./templates.js";
 import { getSharedContent, hasSharedContent, clearShareParam, copyShareLink, getShareLinkInfo } from "./share.js";
 import { icons, getIcon } from "./icons.js";
+import { PaginationValidator, getAvailablePageSizes, getDefaultRules } from "./pagination-validator.js";
 
 // =====================
 // CONSTANTS
@@ -72,6 +73,12 @@ let autoCompile = true;
 
 // Loaded fonts
 let loadedFonts = [];
+
+// Pagination Validation
+let paginationValidator = null;
+let validationResults = null;
+let validationPanelVisible = false;
+let autoValidate = true;
 
 // =====================
 // INITIALIZATION
@@ -884,6 +891,11 @@ function handleCompilerMessage(event) {
     // Pass a separate copy to pdf.js for rendering
     renderPDF(new Uint8Array(pdfBuffer));
     setCompileStatus("ready");
+    
+    // Run pagination validation if enabled
+    if (autoValidate && currentPdfBuffer) {
+      runPaginationValidation();
+    }
   }
 }
 
@@ -2557,11 +2569,16 @@ function setupUI() {
               </button>
             </div>
             <div class="preview-toolbar-right">
+              <button class="validation-indicator" id="validation-indicator" title="Pagination Validation">
+                ${icons.validate} <span>Validate</span>
+              </button>
               <span class="page-info" id="page-info">Page 1 of 1</span>
             </div>
           </div>
           <div class="preview-content" id="preview-content">
             <div class="pdf-container" id="pdf-pages"></div>
+            <!-- Validation Panel -->
+            <div class="validation-panel" id="validation-panel"></div>
           </div>
         </div>
       </div>
@@ -2678,6 +2695,12 @@ function setupEventListeners() {
   document.getElementById("zoom-level").addEventListener("click", (e) => {
     e.preventDefault();
     resetZoom();
+  });
+
+  // Validation indicator
+  document.getElementById("validation-indicator").addEventListener("click", (e) => {
+    e.preventDefault();
+    toggleValidationPanel();
   });
 
   // Error window controls
@@ -3344,6 +3367,570 @@ $ integral_0^infinity e^(-x^2) dif x $</pre>
       });
     }
   }, 0);
+}
+
+// =====================
+// PAGINATION VALIDATION
+// =====================
+
+// Initialize the pagination validator
+function initPaginationValidator() {
+  if (!paginationValidator) {
+    paginationValidator = new PaginationValidator();
+    // Load saved validation settings
+    const savedRules = localStorage.getItem('validationRules');
+    if (savedRules) {
+      try {
+        const rules = JSON.parse(savedRules);
+        rules.forEach(rule => {
+          paginationValidator.updateRule(rule.id, rule);
+        });
+      } catch (e) {
+        console.warn('Failed to load saved validation rules:', e);
+      }
+    }
+    const savedAutoValidate = localStorage.getItem('autoValidate');
+    if (savedAutoValidate !== null) {
+      autoValidate = savedAutoValidate === 'true';
+    }
+  }
+  return paginationValidator;
+}
+
+// Run pagination validation on current PDF
+async function runPaginationValidation() {
+  if (!currentPdfBuffer) {
+    console.log('[Validation] No PDF buffer available');
+    return;
+  }
+
+  initPaginationValidator();
+  
+  console.log('[Validation] Starting validation...');
+  updateValidationStatus('validating');
+  
+  try {
+    // Pass a copy of the buffer since pdf.js may detach it
+    validationResults = await paginationValidator.validate(new Uint8Array(currentPdfBuffer));
+    console.log('[Validation] Results:', validationResults);
+    
+    updateValidationStatus(validationResults.valid ? 'valid' : 'invalid');
+    updateValidationPanel();
+  } catch (e) {
+    console.error('[Validation] Error:', e);
+    updateValidationStatus('error');
+  }
+}
+
+// Update validation status indicator in UI
+function updateValidationStatus(status) {
+  const indicator = document.getElementById('validation-indicator');
+  if (!indicator) return;
+
+  indicator.className = 'validation-indicator';
+  
+  switch (status) {
+    case 'validating':
+      indicator.classList.add('validating');
+      indicator.innerHTML = `${icons.loading} <span>Validating...</span>`;
+      indicator.title = 'Running validation...';
+      break;
+    case 'valid':
+      indicator.classList.add('valid');
+      const passCount = validationResults?.passed || 0;
+      indicator.innerHTML = `${icons.check} <span>${passCount} passed</span>`;
+      indicator.title = 'All validation rules passed';
+      break;
+    case 'invalid':
+      indicator.classList.add('invalid');
+      const failCount = validationResults?.failed || 0;
+      const warnCount = validationResults?.warnings || 0;
+      let statusText = [];
+      if (failCount > 0) statusText.push(`${failCount} failed`);
+      if (warnCount > 0) statusText.push(`${warnCount} warnings`);
+      indicator.innerHTML = `${icons.warning} <span>${statusText.join(', ')}</span>`;
+      indicator.title = 'Click to see validation details';
+      break;
+    case 'error':
+      indicator.classList.add('error');
+      indicator.innerHTML = `${icons.error} <span>Error</span>`;
+      indicator.title = 'Validation failed';
+      break;
+    default:
+      indicator.innerHTML = `${icons.validate} <span>Validate</span>`;
+      indicator.title = 'Run pagination validation';
+  }
+}
+
+// Toggle validation panel visibility
+function toggleValidationPanel() {
+  validationPanelVisible = !validationPanelVisible;
+  const panel = document.getElementById('validation-panel');
+  if (panel) {
+    panel.classList.toggle('visible', validationPanelVisible);
+  }
+  if (validationPanelVisible && !validationResults) {
+    runPaginationValidation();
+  }
+}
+
+// Update validation panel content
+function updateValidationPanel() {
+  const panel = document.getElementById('validation-panel');
+  if (!panel || !validationResults) return;
+
+  const { valid, totalRules, passed, failed, warnings, results, metadata } = validationResults;
+
+  // Build results HTML
+  const resultsHtml = results.map((result, index) => {
+    const icon = result.status === 'pass' ? icons.check : 
+                 result.status === 'warning' ? icons.warning : 
+                 result.status === 'info' ? icons.info : icons.error;
+    const statusClass = result.status;
+    const hasPage = result.page !== null && result.page !== undefined;
+    const pageInfo = hasPage ? ` (Page ${result.page})` : '';
+    const clickableClass = hasPage ? 'clickable' : '';
+    const dataPage = hasPage ? `data-page="${result.page}"` : '';
+    const goToIcon = hasPage ? `<div class="validation-result-goto" title="Go to page ${result.page}">${icons.chevronRight}</div>` : '';
+    
+    return `
+      <div class="validation-result ${statusClass} ${clickableClass}" ${dataPage} data-index="${index}">
+        <div class="validation-result-icon">${icon}</div>
+        <div class="validation-result-content">
+          <div class="validation-result-title">${result.ruleName}${pageInfo}</div>
+          <div class="validation-result-message">${result.message}</div>
+        </div>
+        ${goToIcon}
+      </div>
+    `;
+  }).join('');
+
+  // Build metadata HTML
+  const metadataHtml = metadata ? `
+    <div class="validation-metadata">
+      <span class="metadata-item">${icons.file} ${metadata.pageCount} page${metadata.pageCount !== 1 ? 's' : ''}</span>
+      ${metadata.pages?.[0] ? `<span class="metadata-item">${Math.round(metadata.pages[0].width)}×${Math.round(metadata.pages[0].height)} pt</span>` : ''}
+    </div>
+  ` : '';
+
+  panel.innerHTML = `
+    <div class="validation-panel-header" id="validation-panel-drag-handle" title="Drag to move • Double-click to reset position">
+      <div class="validation-panel-drag-indicator">
+        <span class="drag-dots"></span>
+      </div>
+      <div class="validation-panel-title">
+        ${icons.validate}
+        <span>Pagination Validation</span>
+      </div>
+      <div class="validation-panel-actions">
+        <button class="icon-btn small" id="btn-validation-settings" title="Validation Settings">
+          ${icons.settings}
+        </button>
+        <button class="icon-btn small" id="btn-validation-refresh" title="Re-run Validation">
+          ${icons.refresh}
+        </button>
+        <button class="icon-btn small" id="btn-validation-close" title="Close">
+          ${icons.close}
+        </button>
+      </div>
+    </div>
+    <div class="validation-panel-summary ${valid ? 'valid' : 'invalid'}">
+      <div class="validation-summary-icon">${valid ? icons.check : icons.warning}</div>
+      <div class="validation-summary-text">
+        ${valid ? 'All validation rules passed' : `${failed} failed, ${warnings} warnings`}
+      </div>
+      <div class="validation-summary-counts">
+        <span class="count-pass">${passed} passed</span>
+        <span class="count-total">/ ${totalRules} rules</span>
+      </div>
+    </div>
+    ${metadataHtml}
+    <div class="validation-panel-results">
+      ${resultsHtml}
+    </div>
+  `;
+
+  // Setup event listeners
+  document.getElementById('btn-validation-close')?.addEventListener('click', toggleValidationPanel);
+  document.getElementById('btn-validation-refresh')?.addEventListener('click', runPaginationValidation);
+  document.getElementById('btn-validation-settings')?.addEventListener('click', showValidationSettingsModal);
+
+  // Setup click handlers for navigating to pages
+  panel.querySelectorAll('.validation-result.clickable').forEach(item => {
+    item.addEventListener('click', () => {
+      const pageNum = parseInt(item.dataset.page, 10);
+      const resultIndex = parseInt(item.dataset.index, 10);
+      if (pageNum && pageNum > 0) {
+        // Get the result details for this item
+        const resultDetails = validationResults?.results?.[resultIndex]?.details || null;
+        navigateToValidationPage(pageNum, resultDetails);
+      }
+    });
+  });
+
+  // Setup drag functionality
+  setupValidationPanelDrag();
+}
+
+// Validation panel drag state
+let validationPanelDragState = {
+  isDragging: false,
+  startX: 0,
+  startY: 0,
+  startLeft: 0,
+  startTop: 0
+};
+
+// Setup drag functionality for validation panel
+function setupValidationPanelDrag() {
+  const panel = document.getElementById('validation-panel');
+  const dragHandle = document.getElementById('validation-panel-drag-handle');
+  
+  if (!panel || !dragHandle) return;
+
+  // Double-click to reset position
+  dragHandle.addEventListener('dblclick', (e) => {
+    if (e.target.closest('button')) return;
+    resetValidationPanelPosition();
+    showToast('Panel position reset');
+  });
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    // Don't start drag if clicking on buttons
+    if (e.target.closest('button')) return;
+    
+    e.preventDefault();
+    
+    validationPanelDragState.isDragging = true;
+    validationPanelDragState.startX = e.clientX;
+    validationPanelDragState.startY = e.clientY;
+    
+    // Get current position - use fixed positioning for full viewport movement
+    const rect = panel.getBoundingClientRect();
+    validationPanelDragState.startLeft = rect.left;
+    validationPanelDragState.startTop = rect.top;
+    
+    // Switch to fixed positioning for free movement across entire app
+    panel.style.position = 'fixed';
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.right = 'auto';
+    
+    // Add dragging class
+    panel.classList.add('dragging');
+    document.body.style.cursor = 'grabbing';
+    document.body.style.userSelect = 'none';
+    
+    // Add move and up listeners to document
+    document.addEventListener('mousemove', handleValidationPanelDrag);
+    document.addEventListener('mouseup', stopValidationPanelDrag);
+  });
+}
+
+function handleValidationPanelDrag(e) {
+  if (!validationPanelDragState.isDragging) return;
+  
+  e.preventDefault();
+  
+  const panel = document.getElementById('validation-panel');
+  if (!panel) return;
+  
+  // Calculate new position
+  const deltaX = e.clientX - validationPanelDragState.startX;
+  const deltaY = e.clientY - validationPanelDragState.startY;
+  
+  let newLeft = validationPanelDragState.startLeft + deltaX;
+  let newTop = validationPanelDragState.startTop + deltaY;
+  
+  // Get panel dimensions and viewport
+  const panelRect = panel.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  // Constrain within viewport bounds (with some padding)
+  const padding = 20;
+  const minLeft = padding - panelRect.width + 100; // Allow some off-screen but keep handle visible
+  const maxLeft = viewportWidth - 100; // Keep at least 100px visible
+  const minTop = 48; // Below header
+  const maxTop = viewportHeight - 100; // Keep at least 100px visible
+  
+  newLeft = Math.max(minLeft, Math.min(maxLeft, newLeft));
+  newTop = Math.max(minTop, Math.min(maxTop, newTop));
+  
+  // Apply position
+  panel.style.left = `${newLeft}px`;
+  panel.style.top = `${newTop}px`;
+}
+
+function stopValidationPanelDrag() {
+  validationPanelDragState.isDragging = false;
+  
+  const panel = document.getElementById('validation-panel');
+  if (panel) {
+    panel.classList.remove('dragging');
+  }
+  
+  document.body.style.cursor = '';
+  document.body.style.userSelect = '';
+  
+  document.removeEventListener('mousemove', handleValidationPanelDrag);
+  document.removeEventListener('mouseup', stopValidationPanelDrag);
+}
+
+// Reset validation panel position
+function resetValidationPanelPosition() {
+  const panel = document.getElementById('validation-panel');
+  if (panel) {
+    // Reset to absolute positioning within preview content
+    panel.style.position = 'absolute';
+    panel.style.left = '';
+    panel.style.top = '56px';
+    panel.style.right = '16px';
+  }
+}
+
+// Navigate to a specific page from validation result
+function navigateToValidationPage(pageNum, resultDetails = null) {
+  const pageWrapper = document.querySelector(`.pdf-page-wrapper[data-page="${pageNum}"]`);
+  
+  if (pageWrapper) {
+    // Scroll to the page
+    pageWrapper.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    
+    // Update current page indicator
+    currentPage = pageNum;
+    updatePageInfo();
+    
+    // Add a highlight effect to the page
+    pageWrapper.classList.add('validation-highlight');
+    setTimeout(() => pageWrapper.classList.remove('validation-highlight'), 1500);
+    
+    // Try to highlight matching text in editor if details contain lineText
+    if (resultDetails?.lineText && editor) {
+      highlightValidationTextInEditor(resultDetails.lineText);
+    }
+    
+    // Show toast notification
+    showToast(`Navigated to page ${pageNum}`);
+  }
+}
+
+// Validation editor decorations
+let validationDecorations = [];
+
+// Highlight text in editor that matches validation result
+function highlightValidationTextInEditor(searchText) {
+  if (!editor || !searchText) return;
+  
+  // Clear previous validation highlights
+  clearValidationHighlights();
+  
+  const source = editor.getValue();
+  const lines = source.split('\n');
+  
+  // Clean up search text - remove ellipsis and extra whitespace
+  const cleanText = searchText.replace(/\.{3}$/, '').trim();
+  
+  if (cleanText.length < 3) return; // Too short to search meaningfully
+  
+  // Find lines containing the text
+  const matchingLines = [];
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Check if line contains the search text (case-insensitive partial match)
+    if (line.toLowerCase().includes(cleanText.toLowerCase().substring(0, Math.min(20, cleanText.length)))) {
+      matchingLines.push({
+        lineNumber: i + 1,
+        line: line
+      });
+    }
+  }
+  
+  if (matchingLines.length > 0) {
+    // Highlight the first match
+    const firstMatch = matchingLines[0];
+    
+    // Create decoration
+    validationDecorations = editor.deltaDecorations([], [
+      {
+        range: new monaco.Range(firstMatch.lineNumber, 1, firstMatch.lineNumber, firstMatch.line.length + 1),
+        options: {
+          isWholeLine: true,
+          className: 'editor-line-validation',
+          glyphMarginClassName: 'editor-glyph-validation',
+          overviewRuler: {
+            color: 'rgba(34, 211, 238, 0.7)',
+            position: monaco.editor.OverviewRulerLane.Right
+          }
+        }
+      }
+    ]);
+    
+    // Scroll to the line in editor
+    editor.revealLineInCenter(firstMatch.lineNumber);
+    
+    // Auto-clear highlight after a delay
+    setTimeout(clearValidationHighlights, 5000);
+  }
+}
+
+// Clear validation highlights from editor
+function clearValidationHighlights() {
+  if (editor && validationDecorations.length > 0) {
+    validationDecorations = editor.deltaDecorations(validationDecorations, []);
+  }
+}
+
+// Show validation settings modal
+function showValidationSettingsModal() {
+  initPaginationValidator();
+  const rules = paginationValidator.getRules();
+  const pageSizes = getAvailablePageSizes();
+
+  const rulesHtml = rules.map(rule => {
+    const configInputs = getConfigInputsForRule(rule);
+    return `
+      <div class="validation-rule-item">
+        <div class="validation-rule-header">
+          <label class="validation-rule-toggle">
+            <input type="checkbox" data-rule-id="${rule.id}" ${rule.enabled ? 'checked' : ''}>
+            <span class="validation-rule-name">${rule.name}</span>
+          </label>
+          <select class="validation-severity-select" data-severity-rule="${rule.id}">
+            <option value="error" ${rule.severity === 'error' ? 'selected' : ''}>Error</option>
+            <option value="warning" ${rule.severity === 'warning' ? 'selected' : ''}>Warning</option>
+            <option value="info" ${rule.severity === 'info' ? 'selected' : ''}>Info</option>
+          </select>
+        </div>
+        <div class="validation-rule-description">${rule.description}</div>
+        ${configInputs ? `<div class="validation-rule-config">${configInputs}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  const content = `
+    <div class="validation-settings">
+      <div class="validation-settings-header">
+        <label class="auto-validate-toggle">
+          <input type="checkbox" id="auto-validate-checkbox" ${autoValidate ? 'checked' : ''}>
+          <span>Auto-validate after compilation</span>
+        </label>
+      </div>
+      <div class="validation-rules-list">
+        <h4>Validation Rules</h4>
+        ${rulesHtml}
+      </div>
+      <div class="validation-settings-actions">
+        <button class="btn secondary" id="btn-reset-validation-rules">Reset to Defaults</button>
+        <button class="btn primary" id="btn-save-validation-rules">Save Settings</button>
+      </div>
+    </div>
+  `;
+
+  showModal('Pagination Validation Settings', content, 'large');
+
+  // Setup event listeners after modal is shown
+  setTimeout(() => {
+    // Auto-validate toggle
+    document.getElementById('auto-validate-checkbox')?.addEventListener('change', (e) => {
+      autoValidate = e.target.checked;
+    });
+
+    // Rule toggles
+    document.querySelectorAll('[data-rule-id]').forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const ruleId = e.target.dataset.ruleId;
+        paginationValidator.setRuleEnabled(ruleId, e.target.checked);
+      });
+    });
+
+    // Severity selects
+    document.querySelectorAll('[data-severity-rule]').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const ruleId = e.target.dataset.severityRule;
+        const severity = e.target.value;
+        paginationValidator.updateRule(ruleId, { severity });
+      });
+    });
+
+    // Config inputs
+    document.querySelectorAll('[data-config-rule]').forEach(input => {
+      input.addEventListener('change', (e) => {
+        const ruleId = e.target.dataset.configRule;
+        const configKey = e.target.dataset.configKey;
+        let value = e.target.type === 'number' ? parseFloat(e.target.value) : e.target.value;
+        if (e.target.type === 'checkbox') value = e.target.checked;
+        paginationValidator.setRuleConfig(ruleId, { [configKey]: value });
+      });
+    });
+
+    // Reset button
+    document.getElementById('btn-reset-validation-rules')?.addEventListener('click', () => {
+      paginationValidator.resetRules();
+      localStorage.removeItem('validationRules');
+      autoValidate = true;
+      localStorage.setItem('autoValidate', 'true');
+      closeModal();
+      showToast('Validation rules reset to defaults');
+    });
+
+    // Save button
+    document.getElementById('btn-save-validation-rules')?.addEventListener('click', () => {
+      const rules = paginationValidator.getRules();
+      localStorage.setItem('validationRules', JSON.stringify(rules));
+      localStorage.setItem('autoValidate', String(autoValidate));
+      closeModal();
+      showToast('Validation settings saved');
+      // Re-run validation with new settings
+      if (currentPdfBuffer) {
+        runPaginationValidation();
+      }
+    });
+  }, 0);
+}
+
+// Generate config inputs HTML for a rule
+function getConfigInputsForRule(rule) {
+  const config = rule.config;
+  if (!config || Object.keys(config).length === 0) return '';
+
+  const inputs = [];
+  const pageSizes = getAvailablePageSizes();
+
+  for (const [key, value] of Object.entries(config)) {
+    let input = '';
+    const label = key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase());
+    
+    if (key === 'expectedSize') {
+      input = `
+        <label>
+          <span>${label}</span>
+          <select data-config-rule="${rule.id}" data-config-key="${key}">
+            ${pageSizes.map(size => `<option value="${size}" ${value === size ? 'selected' : ''}>${size}</option>`).join('')}
+            <option value="custom" ${value === 'custom' ? 'selected' : ''}>Custom</option>
+          </select>
+        </label>
+      `;
+    } else if (typeof value === 'boolean') {
+      input = `
+        <label class="config-checkbox">
+          <input type="checkbox" data-config-rule="${rule.id}" data-config-key="${key}" ${value ? 'checked' : ''}>
+          <span>${label}</span>
+        </label>
+      `;
+    } else if (typeof value === 'number') {
+      input = `
+        <label>
+          <span>${label}</span>
+          <input type="number" data-config-rule="${rule.id}" data-config-key="${key}" value="${value}" min="0" step="1">
+        </label>
+      `;
+    }
+    
+    if (input) inputs.push(input);
+  }
+
+  return inputs.join('');
 }
 
 // =====================
@@ -4428,6 +5015,10 @@ function addStyles() {
 
     [data-theme="light"] .editor-line-warning {
       background: rgba(217, 119, 6, 0.12) !important;
+    }
+
+    [data-theme="light"] .editor-line-validation {
+      background: rgba(8, 145, 178, 0.12) !important;
     }
 
     /* Reset */
@@ -6396,10 +6987,495 @@ function addStyles() {
       color: var(--text-muted);
     }
 
+    /* Validation Indicator */
+    .validation-indicator {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      color: var(--text-secondary);
+      transition: all 0.2s ease;
+    }
+
+    .validation-indicator:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent);
+    }
+
+    .validation-indicator .icon {
+      width: 14px;
+      height: 14px;
+    }
+
+    .validation-indicator.validating {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .validation-indicator.validating .icon {
+      animation: spin 1s linear infinite;
+    }
+
+    .validation-indicator.valid {
+      color: var(--success);
+      border-color: var(--success);
+      background: rgba(74, 222, 128, 0.1);
+    }
+
+    .validation-indicator.invalid {
+      color: var(--warning);
+      border-color: var(--warning);
+      background: rgba(251, 191, 36, 0.1);
+    }
+
+    .validation-indicator.error {
+      color: var(--error);
+      border-color: var(--error);
+      background: rgba(248, 113, 113, 0.1);
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+
+    /* Validation Panel */
+    .validation-panel {
+      position: absolute;
+      right: 16px;
+      top: 56px;
+      width: 380px;
+      max-height: calc(100vh - 200px);
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      z-index: 100;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .validation-panel.visible {
+      display: flex;
+    }
+
+    .validation-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+      cursor: grab;
+      border-radius: 12px 12px 0 0;
+      user-select: none;
+    }
+
+    .validation-panel-header:active {
+      cursor: grabbing;
+    }
+
+    .validation-panel.dragging {
+      opacity: 0.95;
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.4);
+      z-index: 10000;
+    }
+
+    .validation-panel[style*="position: fixed"] {
+      z-index: 1000;
+    }
+
+    .validation-panel.dragging .validation-panel-header {
+      cursor: grabbing;
+    }
+
+    .validation-panel-drag-indicator {
+      display: flex;
+      align-items: center;
+      margin-right: 8px;
+    }
+
+    .drag-dots {
+      display: block;
+      width: 8px;
+      height: 14px;
+      background-image: radial-gradient(circle, var(--text-muted) 1.5px, transparent 1.5px);
+      background-size: 4px 4px;
+      opacity: 0.6;
+      transition: opacity 0.2s ease;
+    }
+
+    .validation-panel-header:hover .drag-dots {
+      opacity: 1;
+    }
+
+    .validation-panel-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      color: var(--text-primary);
+    }
+
+    .validation-panel-title .icon {
+      width: 16px;
+      height: 16px;
+      color: var(--accent);
+    }
+
+    .validation-panel-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .validation-panel-summary {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .validation-panel-summary.valid {
+      background: rgba(74, 222, 128, 0.1);
+    }
+
+    .validation-panel-summary.invalid {
+      background: rgba(251, 191, 36, 0.1);
+    }
+
+    .validation-summary-icon {
+      width: 24px;
+      height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .validation-panel-summary.valid .validation-summary-icon {
+      color: var(--success);
+    }
+
+    .validation-panel-summary.invalid .validation-summary-icon {
+      color: var(--warning);
+    }
+
+    .validation-summary-text {
+      flex: 1;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .validation-summary-counts {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .validation-summary-counts .count-pass {
+      color: var(--success);
+    }
+
+    .validation-metadata {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border-color);
+      background: var(--bg-tertiary);
+    }
+
+    .metadata-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .metadata-item .icon {
+      width: 12px;
+      height: 12px;
+    }
+
+    .validation-panel-results {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+
+    .validation-result {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      background: var(--bg-tertiary);
+      border-left: 3px solid transparent;
+      transition: all 0.2s ease;
+    }
+
+    .validation-result.clickable {
+      cursor: pointer;
+    }
+
+    .validation-result.clickable:hover {
+      background: var(--bg-hover);
+      transform: translateX(2px);
+    }
+
+    .validation-result.clickable:active {
+      transform: translateX(4px);
+    }
+
+    .validation-result.pass {
+      border-left-color: var(--success);
+    }
+
+    .validation-result.fail {
+      border-left-color: var(--error);
+      background: rgba(248, 113, 113, 0.05);
+    }
+
+    .validation-result.fail.clickable:hover {
+      background: rgba(248, 113, 113, 0.12);
+    }
+
+    .validation-result.warning {
+      border-left-color: var(--warning);
+      background: rgba(251, 191, 36, 0.05);
+    }
+
+    .validation-result.warning.clickable:hover {
+      background: rgba(251, 191, 36, 0.12);
+    }
+
+    .validation-result.info {
+      border-left-color: var(--accent);
+    }
+
+    .validation-result-icon {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .validation-result.pass .validation-result-icon {
+      color: var(--success);
+    }
+
+    .validation-result.fail .validation-result-icon {
+      color: var(--error);
+    }
+
+    .validation-result.warning .validation-result-icon {
+      color: var(--warning);
+    }
+
+    .validation-result.info .validation-result-icon {
+      color: var(--accent);
+    }
+
+    .validation-result-content {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .validation-result-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+      margin-bottom: 2px;
+    }
+
+    .validation-result-message {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .validation-result-goto {
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+      color: var(--text-muted);
+      opacity: 0;
+      transition: opacity 0.2s ease, color 0.2s ease;
+      align-self: center;
+    }
+
+    .validation-result.clickable:hover .validation-result-goto {
+      opacity: 1;
+      color: var(--accent);
+    }
+
+    /* Page highlight effect when navigating from validation */
+    .pdf-page-wrapper.validation-highlight {
+      animation: validation-pulse 1.5s ease-out;
+    }
+
+    @keyframes validation-pulse {
+      0% {
+        box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.4);
+      }
+      50% {
+        box-shadow: 0 0 0 8px rgba(34, 211, 238, 0.2);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+      }
+    }
+
+    /* Validation Settings Modal */
+    .validation-settings {
+      padding: 16px;
+    }
+
+    .validation-settings-header {
+      margin-bottom: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .auto-validate-toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 14px;
+      color: var(--text-primary);
+    }
+
+    .validation-rules-list h4 {
+      margin: 0 0 12px 0;
+      font-size: 13px;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .validation-rule-item {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+    }
+
+    .validation-rule-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+
+    .validation-rule-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .validation-rule-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .validation-severity-select {
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      cursor: pointer;
+      font-weight: 500;
+      text-transform: capitalize;
+    }
+
+    .validation-severity-select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .validation-severity-select option[value="error"] {
+      color: var(--error);
+    }
+
+    .validation-severity-select option[value="warning"] {
+      color: var(--warning);
+    }
+
+    .validation-severity-select option[value="info"] {
+      color: var(--accent);
+    }
+
+    .validation-rule-description {
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .validation-rule-config {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .validation-rule-config label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .validation-rule-config label.config-checkbox {
+      flex-direction: row;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .validation-rule-config input[type="number"],
+    .validation-rule-config select {
+      padding: 4px 8px;
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 12px;
+      width: 100px;
+    }
+
+    .validation-settings-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border-color);
+    }
+
     .preview-content {
       flex: 1;
       overflow: auto;
       background: #404040;
+      position: relative;
     }
 
     .error-panel {
@@ -7207,6 +8283,19 @@ function addStyles() {
 
     .editor-glyph-warning {
       background: #f59e0b;
+      border-radius: 50%;
+      margin-left: 5px;
+      width: 8px !important;
+      height: 8px !important;
+    }
+
+    .editor-line-validation {
+      background: rgba(34, 211, 238, 0.15) !important;
+      border-left: 3px solid #22d3ee !important;
+    }
+
+    .editor-glyph-validation {
+      background: #22d3ee;
       border-radius: 50%;
       margin-left: 5px;
       width: 8px !important;
